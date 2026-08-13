@@ -254,7 +254,7 @@ export const ProjectOverviewView: React.FC<ProjectOverviewViewProps> = ({
                 <span className="text-[10px] text-amber-700 dark:text-amber-400 font-mono font-semibold">High Priority</span>
               </div>
               <h3 className="font-bold text-slate-900 dark:text-slate-100 text-xs">
-                Requirement "{unlinkedReqs[0].title}" has no development tasks
+                Requirement &quot;{unlinkedReqs[0].title}&quot; has no development tasks
               </h3>
               <p className="text-slate-700 dark:text-slate-300 leading-relaxed text-[11px]">
                 Requirement <strong className="font-mono text-blue-700 dark:text-blue-400">[{unlinkedReqs[0].id}]</strong> was extracted from specs but does not currently have any associated development or testing tasks.
