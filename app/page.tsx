@@ -423,12 +423,10 @@ export default function Home() {
         isOpen={store.isAuthModalOpen}
         onClose={() => store.setIsAuthModalOpen(false)}
         user={store.user}
-        onUpdateUser={(profile) => {
-          useAppStore.setState({ user: { ...store.user, ...profile } });
-        }}
-        onLogOut={() => {
+        onUpdateUser={store.updateUser}
+        onLogOut={async () => {
           store.setIsAuthModalOpen(false);
-          store.setCurrentPage('landing');
+          await store.logout();
         }}
       />
 

@@ -27,6 +27,7 @@ export interface UploadedDocItem {
   summary?: string;
   content?: string;
   url?: string;
+  file?: File;
 }
 
 interface CreateProjectModalProps {
@@ -187,6 +188,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
             ? textContent.slice(0, 150).replace(/\n/g, ' ') + '...'
             : `Uploaded local file (${getFileTypeCategory(file.name)}). Ready for vector ingestion.`,
           content: textContent,
+          file,
         };
 
         setStagedDocs((prev) => [...prev, newDoc]);
@@ -203,7 +205,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
       ) {
         reader.readAsText(file);
       } else {
-        // For binary files like PDF/DOCX, store metadata
+        // For binary files like PDF/DOCX, store metadata and file object
         const newDoc: UploadedDocItem = {
           id: `upload-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           title: file.name.replace(/\.[^/.]+$/, ''),
@@ -212,6 +214,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           fileType: getFileTypeCategory(file.name),
           source: 'local',
           summary: `Binary local document (${formatBytes(file.size)}). Ready for vector processing pipeline.`,
+          file,
         };
         setStagedDocs((prev) => [...prev, newDoc]);
       }

@@ -2,9 +2,9 @@
 
 import React, { useState } from 'react';
 import { Brain, Mail, Lock, Eye, EyeOff, ArrowLeft, ArrowRight } from 'lucide-react';
-import { useTheme } from 'next-themes';
 import { UserProfile } from '@/types';
 import ThemeToggle from '@/app/theme-toggle';
+import { useAppStore } from '@/services/store';
 
 interface LoginPageProps {
   onNavigateToSignUp: () => void;
@@ -24,7 +24,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const loginAction = useAppStore((state) => state.login);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -34,27 +36,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
 
     setIsLoading(true);
+    const result = await loginAction(email, password);
+    setIsLoading(false);
 
-    setTimeout(() => {
-      // Simulate successful login
-      const nameFromEmail = email.split('@')[0];
-      const formattedName = nameFromEmail
-        ? nameFromEmail.charAt(0).toUpperCase() + nameFromEmail.slice(1)
-        : 'Developer User';
-
-      const userProfile: UserProfile = {
-        id: `user-${Date.now()}`,
-        name: formattedName,
-        email: email,
-        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
-        githubConnected: true,
-        githubUsername: `${nameFromEmail}-dev`,
-        joinedAt: new Date().toISOString(),
-      };
-
-      setIsLoading(false);
-      onLoginSuccess(userProfile);
-    }, 600);
+    if (result.success && result.user) {
+      onLoginSuccess(result.user);
+    } else {
+      setError(result.error || 'Authentication failed. Please verify credentials.');
+    }
   };
 
   const handleGoogleAuth = () => {
@@ -236,7 +225,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
           {/* Card Footer Link */}
           <div className="text-center pt-3 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 select-none">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <button
               type="button"
               onClick={onNavigateToSignUp}
