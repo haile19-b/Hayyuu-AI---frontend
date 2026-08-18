@@ -17,6 +17,7 @@ import {
   Brain,
 } from 'lucide-react';
 import { Project, UserProfile } from '@/types';
+import { useAppStore } from '@/services/store';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -27,7 +28,6 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   projects,
-  user,
   onSelectProject,
   onOpenCreateProject,
 }) => {
@@ -41,8 +41,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const totalTasks = projects.reduce((sum, p) => sum + (p.tasksCount || 0), 0);
   const totalRisks = projects.reduce((sum, p) => sum + (p.conflictsCount || 0), 0);
 
-  // Find most recently updated project
-  const recentlyActiveProject = [...projects].sort(
+  // Find recently visited project (or fallback to recently updated)
+  const lastVisitedProjectId = useAppStore((state) => state.lastVisitedProjectId);
+  const recentlyActiveProject = projects.find((p) => p.id === lastVisitedProjectId) || [...projects].sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   )[0];
 
@@ -249,7 +250,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 <select
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
+                  onChange={(e) => setSortBy(e.target.value as 'updated' | 'created' | 'name' | 'risks')}
                   className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 rounded-lg px-2.5 py-2 focus:outline-hidden focus:border-blue-600 cursor-pointer"
                 >
                   <option value="updated">Updated</option>
@@ -288,7 +289,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     No matching projects found
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                    We couldn't find any projects matching your search term or active filters.
+                    We couldn&apos;t find any projects matching your search term or active filters.
                   </p>
                   <button
                     onClick={clearFilters}

@@ -25,18 +25,92 @@ import { MemoryView } from '@/components/project/MemoryView';
 import { UnifiedSearchView } from '@/components/project/UnifiedSearchView';
 import { SettingsView } from '@/components/project/SettingsView';
 import { Brain, RefreshCw } from 'lucide-react';
-import { KnowledgeType } from '@/types';
+import { KnowledgeType, NavigationSection } from '@/types';
 
+const parsePathToState = (path: string) => {
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length === 0 || segments[0] === 'landing') {
+    return { currentPage: 'landing' as const, activeSection: 'projects' as const, currentProjectId: undefined };
+  }
+  if (segments[0] === 'login') {
+    return { currentPage: 'login' as const, activeSection: 'projects' as const, currentProjectId: undefined };
+  }
+  if (segments[0] === 'signup') {
+    return { currentPage: 'signup' as const, activeSection: 'projects' as const, currentProjectId: undefined };
+  }
+  if (segments[0] === 'projects') {
+    const projectId = segments[1];
+    const section = segments[2] as NavigationSection;
+    if (projectId) {
+      return {
+        currentPage: 'app' as const,
+        currentProjectId: projectId,
+        activeSection: section || ('overview' as const)
+      };
+    } else {
+      return {
+        currentPage: 'app' as const,
+        currentProjectId: undefined,
+        activeSection: 'projects' as const
+      };
+    }
+  }
+  return null;
+};
 
 export default function Home() {
   const store = useAppStore();
   const hydrateStore = useAppStore((state) => state.hydrateStore);
   const setActiveSection = useAppStore((state) => state.setActiveSection);
 
-  // Trigger state hydration upon client mount
+  // Trigger state hydration upon client mount, reading target path
   useEffect(() => {
-    hydrateStore();
+    const routeInfo = parsePathToState(window.location.pathname);
+    hydrateStore({
+      projectId: routeInfo?.currentProjectId,
+      section: routeInfo?.activeSection,
+    });
   }, [hydrateStore]);
+
+  // Synchronize store changes to browser URL path
+  useEffect(() => {
+    if (!store.isHydrated) return;
+
+    let targetPath = '/';
+    if (store.currentPage === 'login') {
+      targetPath = '/login';
+    } else if (store.currentPage === 'signup') {
+      targetPath = '/signup';
+    } else if (store.currentPage === 'app') {
+      if (store.currentProjectId) {
+        targetPath = `/projects/${store.currentProjectId}/${store.activeSection}`;
+      } else {
+        targetPath = '/projects';
+      }
+    } else {
+      targetPath = '/';
+    }
+
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(null, '', targetPath);
+    }
+  }, [store.currentPage, store.currentProjectId, store.activeSection, store.isHydrated]);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const routeInfo = parsePathToState(window.location.pathname);
+      if (routeInfo) {
+        useAppStore.setState({
+          currentPage: routeInfo.currentPage,
+          currentProjectId: routeInfo.currentProjectId,
+          activeSection: routeInfo.activeSection,
+        });
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Keyboard shortcut Ctrl+K / Cmd+K Search
   useEffect(() => {
@@ -89,7 +163,6 @@ export default function Home() {
         onNavigateToSignUp={() => store.setCurrentPage('signup')}
         onNavigateToLanding={() => store.setCurrentPage('landing')}
         onLoginSuccess={(userProfile) => {
-          // Store's hydrate system updates it, but we can set manually
           useAppStore.setState({ user: userProfile });
           store.setCurrentPage('app');
           store.setActiveSection('projects');

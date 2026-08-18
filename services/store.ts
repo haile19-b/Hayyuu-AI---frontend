@@ -243,9 +243,10 @@ interface AppState {
 
   // Hydration safety flag
   isHydrated: boolean;
+  lastVisitedProjectId: string | undefined;
 
   // Operations / Actions
-  hydrateStore: () => void;
+  hydrateStore: (initialRouteInfo?: { projectId?: string; section?: NavigationSection }) => void;
   setCurrentPage: (page: 'landing' | 'login' | 'signup' | 'app') => void;
   setActiveSection: (sec: NavigationSection) => void;
   setSelectedTaskId: (id: string | null) => void;
@@ -258,7 +259,7 @@ interface AppState {
   setIsCreateProjectModalOpen: (val: boolean) => void;
 
   // Business Logic Methods
-  selectProject: (projectId: string | undefined) => void;
+  selectProject: (projectId: string | undefined, section?: NavigationSection) => void;
   createProject: (data: {
     name: string;
     key: string;
@@ -340,6 +341,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isNotificationsOpen: false,
   isAuthModalOpen: false,
   isCreateProjectModalOpen: false,
+  lastVisitedProjectId: undefined,
 
   projects: [],
   user: { id: '', name: '', email: '', avatarUrl: '', githubConnected: false, joinedAt: '' } as UserProfile,
@@ -380,7 +382,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   isHydrated: false,
 
-  hydrateStore: async () => {
+  hydrateStore: async (initialRouteInfo) => {
     // Register event listener for unauthorized requests
     if (typeof window !== 'undefined') {
       window.removeEventListener('hayyuu-unauthorized', get().logout);
@@ -443,10 +445,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const notifications = StorageService.getNotifications();
     const workflowJobs = StorageService.getWorkflowJobs();
-    const activeProjectId = StorageService.getActiveProjectId();
+    const lastVisitedProjectId = typeof window !== 'undefined' ? (localStorage.getItem('hayyuu_last_visited_project_id') || undefined) : undefined;
+    
+    // Determine the active project ID on reload.
+    // If the initial route specifies a project, use it. Otherwise fall back to local storage.
+    const activeProjectId = (currentPage === 'app' && initialRouteInfo?.projectId) || StorageService.getActiveProjectId();
     const currentProjectId = projects.some((p) => p.id === activeProjectId)
       ? activeProjectId
       : projects[0]?.id;
+
+    // Determine the target section
+    let targetSection: NavigationSection = 'projects';
+    if (currentPage === 'app') {
+      if (currentProjectId) {
+        targetSection = initialRouteInfo?.section || 'overview';
+      } else {
+        targetSection = 'projects';
+      }
+    }
 
     const timeString = new Date().toLocaleTimeString();
 
@@ -457,6 +473,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       workflowJobs,
       currentProjectId,
       currentPage,
+      activeSection: targetSection,
+      lastVisitedProjectId,
       aiJobState: {
         status: 'idle',
         jobName: 'AI Engine Vector Indexer',
@@ -468,7 +486,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (currentProjectId) {
-      get().selectProject(currentProjectId);
+      get().selectProject(currentProjectId, targetSection);
     }
 
     // Set up queue status background polling loop
@@ -548,7 +566,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setIsAuthModalOpen: (isAuthModalOpen) => set({ isAuthModalOpen }),
   setIsCreateProjectModalOpen: (isCreateProjectModalOpen) => set({ isCreateProjectModalOpen }),
 
-  selectProject: async (projectId) => {
+  selectProject: async (projectId, section) => {
     if (!projectId) {
       set({
         currentProjectId: undefined,
@@ -632,7 +650,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({
       currentProjectId: projectId,
-      activeSection: 'overview',
+      activeSection: section || 'overview',
       selectedRequirementId: null,
       selectedTaskId: null,
       documents: docs,
@@ -645,6 +663,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       conversations: conversations,
       activeConversationId: conversations[0]?.id,
     });
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('hayyuu_last_visited_project_id', projectId);
+    }
+    set({ lastVisitedProjectId: projectId });
   },
 
   createProject: async (data) => {
