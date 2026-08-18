@@ -233,7 +233,7 @@ export interface SearchResult {
   snippet: string;
   relevanceScore: number;
   section: NavigationSection;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface NotificationItem {

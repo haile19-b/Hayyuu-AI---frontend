@@ -47,6 +47,7 @@ async function performTokenRefresh(): Promise<string | null> {
       setTokens(data.response.accessToken, data.response.refreshToken);
       return data.response.accessToken;
     }
+    clearTokens();
     return null;
   } catch (err) {
     console.error('Failed to auto-refresh auth tokens:', err);
@@ -55,23 +56,30 @@ async function performTokenRefresh(): Promise<string | null> {
   }
 }
 
-async function getOrRefreshToken(): Promise<string | null> {
+export async function getOrRefreshToken(): Promise<string | null> {
   const access = getAccessToken();
-  if (!access) return null;
+  const refresh = getRefreshToken();
 
-  // Simple token decoding check to see if expired
-  try {
-    const payload = JSON.parse(atob(access.split('.')[1]));
-    const exp = payload.exp * 1000;
-    // Refresh 30 seconds before actual expiration
-    if (Date.now() < exp - 30000) {
-      return access;
-    }
-  } catch {
-    // If not a valid JWT, return token anyways, let server validate
+  // If no refresh token, we cannot do anything
+  if (!refresh) {
+    return null;
   }
 
-  // Token is expired or expiring soon, let's refresh
+  // If we have an access token, check if it's still valid
+  if (access) {
+    try {
+      const payload = JSON.parse(atob(access.split('.')[1]));
+      const exp = payload.exp * 1000;
+      // Refresh 30 seconds before actual expiration
+      if (Date.now() < exp - 30000) {
+        return access;
+      }
+    } catch {
+      // If access token is malformed, try to refresh using the refresh token
+    }
+  }
+
+  // Access token is missing, expired, or invalid. Request a refresh.
   if (!refreshPromise) {
     refreshPromise = performTokenRefresh().finally(() => {
       refreshPromise = null;
@@ -81,7 +89,7 @@ async function getOrRefreshToken(): Promise<string | null> {
   return refreshPromise;
 }
 
-export async function apiFetch<T = any>(
+export async function apiFetch<T = unknown>(
   path: string,
   options: FetchOptions = {}
 ): Promise<{ success: boolean; response?: T; message?: string; error?: string }> {
@@ -107,18 +115,29 @@ export async function apiFetch<T = any>(
 
     // Check if unauthorized, try one last refresh if not skipped
     if (res.status === 401 && !skipAuth) {
-      clearTokens(); // clear stale tokens first
-      const newAccess = await performTokenRefresh();
+      if (!refreshPromise) {
+        refreshPromise = performTokenRefresh().finally(() => {
+          refreshPromise = null;
+        });
+      }
+      const newAccess = await refreshPromise;
       if (newAccess) {
         mergedHeaders.set('Authorization', `Bearer ${newAccess}`);
         res = await fetch(path, {
           ...restOptions,
           headers: mergedHeaders,
         });
+
+        // If retried request also returns 401, clear tokens and trigger logout
+        if (res.status === 401) {
+          clearTokens();
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('hayyuu-unauthorized'));
+          }
+        }
       } else {
-        // Refresh failed, force trigger logout/redirect by throwing error
+        // Refresh failed, force trigger logout/redirect
         if (typeof window !== 'undefined') {
-          // Dispatch a custom event to tell Zustand to log out
           window.dispatchEvent(new Event('hayyuu-unauthorized'));
         }
       }
@@ -141,11 +160,12 @@ export async function apiFetch<T = any>(
     }
 
     return await res.json();
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error(`Fetch error at ${path}:`, err);
+    const errorMessage = err instanceof Error ? err.message : 'Network connection failed';
     return {
       success: false,
-      error: err?.message || 'Network connection failed',
+      error: errorMessage,
     };
   }
 }

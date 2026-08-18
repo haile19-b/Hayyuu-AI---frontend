@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { StorageService } from './storage';
-import { apiFetch, clearTokens, setTokens, getAccessToken, getRefreshToken } from './api';
+import { apiFetch, clearTokens, setTokens, getAccessToken, getRefreshToken, getOrRefreshToken } from './api';
 import {
   Project,
   NavigationSection,
@@ -18,7 +18,113 @@ import {
   Message,
   RetrievedContext,
   TaskStatus,
+  RequirementType,
+  RequirementPriority,
+  RequirementStatus,
+  TaskPriority,
+  ConflictSeverity,
+  ConflictStatus,
+  ConflictCategory,
 } from '@/types';
+
+declare global {
+  interface Window {
+    __queuePollInterval?: ReturnType<typeof setInterval>;
+  }
+}
+
+interface RawDocument {
+  id: string;
+  projectId: string;
+  name: string;
+  filePath: string;
+  fileType: string;
+  sizeBytes: number;
+  status: string;
+  chunksCount?: number;
+  extractedConcepts?: string[];
+  summary?: string;
+}
+
+interface RawRequirement {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  type: string;
+  priority: string;
+  status: string;
+  source: string;
+  linkedDocIds?: string[];
+  linkedTaskIds?: string[];
+  linkedKnowledgeIds?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface RawTask {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: string;
+  requirementId?: string;
+  linkedDocId?: string;
+  tags?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface RawConflict {
+  id: string;
+  projectId: string;
+  title: string;
+  category: string;
+  severity: string;
+  status: string;
+  description: string;
+  conflictingArtifacts?: Array<{ type: string; title: string; id: string }>;
+  aiExplanation?: string;
+  suggestedAction?: string;
+  detectedAt: string;
+}
+
+interface QueueJob {
+  job_id: string;
+  function: string;
+  status: string;
+}
+
+interface QueueStatusResponse {
+  queued: QueueJob[];
+  completed: Array<{
+    job_id: string;
+    function: string;
+    success: boolean;
+    result: string;
+    finish_time: string;
+  }>;
+}
+
+interface AuthResponse {
+  accessToken: string;
+  refreshToken: string;
+  userId?: string;
+  userName?: string;
+  fullName?: string;
+  githubToken?: string;
+  createdAt?: string;
+}
+
+interface UserProfileResponse {
+  username: string;
+  email: string;
+  fullName: string;
+  id?: string;
+  githubToken?: string;
+  createdAt?: string;
+}
 
 // AI Job state status
 export type AiJobStateStatus = 'idle' | 'running' | 'processing' | 'generating' | 'completed' | 'failed';
@@ -28,7 +134,7 @@ function mapReqTypeF2B(type: string): string {
   return 'NON_FUNCTIONAL';
 }
 
-function mapReqTypeB2F(type: string): any {
+function mapReqTypeB2F(type: string): RequirementType {
   if (type === 'FUNCTIONAL') return 'Functional';
   return 'Non-Functional';
 }
@@ -39,7 +145,7 @@ function mapPriorityF2B(p: string): string {
   return 'P2';
 }
 
-function mapPriorityB2F(p: string): any {
+function mapPriorityB2F(p: string): RequirementPriority & TaskPriority {
   if (p === 'P0') return 'High';
   if (p === 'P1') return 'Medium';
   return 'Low';
@@ -52,7 +158,7 @@ function mapReqStatusF2B(s: string): string {
   return 'REJECTED';
 }
 
-function mapReqStatusB2F(s: string): any {
+function mapReqStatusB2F(s: string): RequirementStatus {
   if (s === 'DRAFT') return 'Draft';
   if (s === 'SUGGESTION') return 'In Review';
   if (s === 'APPROVED') return 'Approved';
@@ -65,19 +171,19 @@ function mapTaskStatusF2B(s: string): string {
   return 'TODO';
 }
 
-function mapTaskStatusB2F(s: string): any {
+function mapTaskStatusB2F(s: string): TaskStatus {
   if (s === 'IN_PROGRESS') return 'In Progress';
   if (s === 'DONE') return 'Done';
   return 'Todo';
 }
 
-function mapConflictSeverityB2F(s: string): any {
+function mapConflictSeverityB2F(s: string): ConflictSeverity {
   if (s === 'HIGH') return 'High';
   if (s === 'MEDIUM') return 'Medium';
   return 'Low';
 }
 
-function mapConflictStatusB2F(s: string): any {
+function mapConflictStatusB2F(s: string): ConflictStatus {
   if (s === 'RESOLVED') return 'Resolved';
   return 'Active';
 }
@@ -166,13 +272,14 @@ interface AppState {
       fileType: string;
       summary?: string;
       file?: File;
+      content?: string;
     }>;
   }) => void;
   updateProject: (projectId: string, updates: Partial<Project>) => void;
   deleteProject: (projectId: string) => void;
 
   // Documents
-  addDocument: (doc: { title: string; fileName: string; fileSize: string; fileType: string; summary?: string; file?: File }) => void;
+  addDocument: (doc: { title: string; fileName: string; fileSize: string; fileType: string; summary?: string; file?: File; content?: string }) => void;
   deleteDocument: (id: string) => void;
 
   // Requirements
@@ -280,33 +387,56 @@ export const useAppStore = create<AppState>((set, get) => ({
       window.addEventListener('hayyuu-unauthorized', get().logout);
     }
 
-    const token = getAccessToken();
+    const access = getAccessToken();
+    const refresh = getRefreshToken();
     let user: UserProfile = { id: '', name: '', email: '', avatarUrl: '', githubConnected: false, joinedAt: '' };
     let projects: Project[] = [];
     let currentPage: 'landing' | 'login' | 'signup' | 'app' = 'landing';
 
-    if (token) {
-      // Try to load user profile
-      const resMe = await apiFetch<any>('/api/v1/auth/me');
-      if (resMe.success && resMe.response) {
-        user = {
-          id: resMe.response.id || 'usr-default',
-          name: resMe.response.fullName,
-          email: resMe.response.email,
-          avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${resMe.response.email}`,
-          githubConnected: !!resMe.response.githubToken,
-          githubUsername: resMe.response.userName,
-          joinedAt: resMe.response.createdAt || new Date().toISOString(),
-        };
-
-        // Load user projects
-        const resProj = await apiFetch<Project[]>('/api/v1/projects');
-        if (resProj.success && resProj.response) {
-          projects = resProj.response;
+    if (access || refresh) {
+      // Validate access token and refresh using refresh token before making protected requests
+      let validToken = access;
+      if (access) {
+        try {
+          const payload = JSON.parse(atob(access.split('.')[1]));
+          const exp = payload.exp * 1000;
+          if (Date.now() >= exp - 30000) {
+            validToken = null;
+          }
+        } catch {
+          validToken = null;
         }
-        currentPage = 'app';
+      }
+
+      if (!validToken && refresh) {
+        // Attempt to refresh the token using the refresh token
+        validToken = await getOrRefreshToken();
+      }
+
+      if (validToken) {
+        // Try to load user profile
+        const resMe = await apiFetch<UserProfileResponse>('/api/v1/auth/me');
+        if (resMe.success && resMe.response) {
+          user = {
+            id: resMe.response.id || 'usr-default',
+            name: resMe.response.fullName,
+            email: resMe.response.email,
+            avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${resMe.response.email}`,
+            githubConnected: !!resMe.response.githubToken,
+            githubUsername: resMe.response.username,
+            joinedAt: resMe.response.createdAt || new Date().toISOString(),
+          };
+
+          // Load user projects
+          const resProj = await apiFetch<Project[]>('/api/v1/projects');
+          if (resProj.success && resProj.response) {
+            projects = resProj.response;
+          }
+          currentPage = 'app';
+        } else {
+          clearTokens();
+        }
       } else {
-        // Clear expired token
         clearTokens();
       }
     }
@@ -343,18 +473,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Set up queue status background polling loop
     if (typeof window !== 'undefined') {
-      if ((window as any).__queuePollInterval) {
-        clearInterval((window as any).__queuePollInterval);
+      if (window.__queuePollInterval) {
+        clearInterval(window.__queuePollInterval);
       }
 
       const pollQueue = async () => {
         // Only poll if user is authenticated and on app dashboard
         if (!getAccessToken() || get().currentPage !== 'app') return;
 
-        const res = await apiFetch<any>('/api/v1/queue/status');
+        const res = await apiFetch<QueueStatusResponse>('/api/v1/queue/status');
         if (res.success && res.response) {
           const queued = res.response.queued || [];
-          const activeJob = queued.find((j: any) => j.status === 'in_progress' || j.status === 'queued' || j.status === 'deferred');
+          const activeJob = queued.find((j: QueueJob) => j.status === 'in_progress' || j.status === 'queued' || j.status === 'deferred');
 
           if (activeJob) {
             set({
@@ -397,7 +527,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Execute immediately and then poll every 4 seconds
       pollQueue();
-      (window as any).__queuePollInterval = setInterval(pollQueue, 4000);
+      window.__queuePollInterval = setInterval(pollQueue, 4000);
     }
   },
 
@@ -440,43 +570,58 @@ export const useAppStore = create<AppState>((set, get) => ({
     StorageService.setActiveProjectId(projectId);
 
     const [resDocs, resReqs, resTasks, resConfs] = await Promise.all([
-      apiFetch<ProjectDocument[]>(`/api/v1/projects/${projectId}/documents`),
-      apiFetch<Requirement[]>(`/api/v1/projects/${projectId}/requirements`),
-      apiFetch<Task[]>(`/api/v1/projects/${projectId}/tasks`),
-      apiFetch<Conflict[]>(`/api/v1/projects/${projectId}/conflicts`),
+      apiFetch<RawDocument[]>(`/api/v1/projects/${projectId}/documents`),
+      apiFetch<RawRequirement[]>(`/api/v1/projects/${projectId}/requirements`),
+      apiFetch<RawTask[]>(`/api/v1/projects/${projectId}/tasks`),
+      apiFetch<RawConflict[]>(`/api/v1/projects/${projectId}/conflicts`),
     ]);
 
     const docs = resDocs.success
-      ? (resDocs.response || []).map((d: any) => ({
+      ? (resDocs.response || []).map((d: RawDocument) => ({
           ...d,
           status: mapDocStatusB2F(d.status),
           chunksCount: d.chunksCount || 0,
           extractedConcepts: d.extractedConcepts || [],
           fileSize: d.sizeBytes ? `${(d.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : '0.00 MB',
           title: d.name || 'Untitled Document',
+          fileName: d.name || '',
+          uploadedAt: new Date().toISOString(),
+          summary: d.summary || '',
         }))
       : [];
     const reqs = resReqs.success
-      ? (resReqs.response || []).map((r: any) => ({
+      ? (resReqs.response || []).map((r: RawRequirement) => ({
           ...r,
           type: mapReqTypeB2F(r.type),
           priority: mapPriorityB2F(r.priority),
           status: mapReqStatusB2F(r.status),
+          linkedDocIds: r.linkedDocIds || [],
+          linkedTaskIds: r.linkedTaskIds || [],
+          linkedKnowledgeIds: r.linkedKnowledgeIds || [],
         }))
       : [];
     const tasks = resTasks.success
-      ? (resTasks.response || []).map((t: any) => ({
+      ? (resTasks.response || []).map((t: RawTask) => ({
           ...t,
           linkedRequirementId: t.requirementId,
           status: mapTaskStatusB2F(t.status),
           priority: mapPriorityB2F(t.priority),
+          tags: t.tags || [],
         }))
       : [];
     const conflicts = resConfs.success
-      ? (resConfs.response || []).map((c: any) => ({
+      ? (resConfs.response || []).map((c: RawConflict) => ({
           ...c,
+          category: c.category as ConflictCategory,
           severity: mapConflictSeverityB2F(c.severity),
           status: mapConflictStatusB2F(c.status),
+          conflictingArtifacts: (c.conflictingArtifacts || []).map((art) => ({
+            id: art.id,
+            title: art.title,
+            type: art.type as 'Document' | 'Requirement' | 'GitHub Code' | 'Task' | 'Knowledge',
+          })),
+          aiExplanation: c.aiExplanation || '',
+          suggestedAction: c.suggestedAction || '',
         }))
       : [];
 
@@ -519,10 +664,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           const formData = new FormData();
           let fileObj: File;
 
-          if ((doc as any).file) {
-            fileObj = (doc as any).file;
+          if (doc.file) {
+            fileObj = doc.file;
           } else {
-            const blob = new Blob([(doc as any).content || ''], { type: 'text/markdown' });
+            const blob = new Blob([doc.content || ''], { type: 'text/markdown' });
             fileObj = new File([blob], doc.fileName, { type: 'text/markdown' });
           }
 
@@ -606,30 +751,33 @@ export const useAppStore = create<AppState>((set, get) => ({
     const formData = new FormData();
     let fileObj: File;
 
-    if ((doc as any).file) {
-      fileObj = (doc as any).file;
+    if (doc.file) {
+      fileObj = doc.file;
     } else {
-      const blob = new Blob([(doc as any).content || ''], { type: 'text/markdown' });
+      const blob = new Blob([doc.content || ''], { type: 'text/markdown' });
       fileObj = new File([blob], doc.fileName, { type: 'text/markdown' });
     }
 
     formData.append('file', fileObj);
 
-    const res = await apiFetch<ProjectDocument>(`/api/v1/projects/${pid}/documents`, {
+    await apiFetch<RawDocument>(`/api/v1/projects/${pid}/documents`, {
       method: 'POST',
       body: formData,
     });
 
-    const resDocs = await apiFetch<any[]>(`/api/v1/projects/${pid}/documents`);
+    const resDocs = await apiFetch<RawDocument[]>(`/api/v1/projects/${pid}/documents`);
     if (resDocs.success) {
       set({
-        documents: (resDocs.response || []).map((d: any) => ({
+        documents: (resDocs.response || []).map((d: RawDocument) => ({
           ...d,
           status: mapDocStatusB2F(d.status),
           chunksCount: d.chunksCount || 0,
           extractedConcepts: d.extractedConcepts || [],
           fileSize: d.sizeBytes ? `${(d.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : '0.00 MB',
           title: d.name || 'Untitled Document',
+          fileName: d.name || '',
+          uploadedAt: new Date().toISOString(),
+          summary: d.summary || '',
         })),
       });
     } else {
@@ -649,16 +797,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resDocs = await apiFetch<any[]>(`/api/v1/projects/${pid}/documents`);
+      const resDocs = await apiFetch<RawDocument[]>(`/api/v1/projects/${pid}/documents`);
       if (resDocs.success) {
         set({
-          documents: (resDocs.response || []).map((d: any) => ({
+          documents: (resDocs.response || []).map((d: RawDocument) => ({
             ...d,
             status: mapDocStatusB2F(d.status),
             chunksCount: d.chunksCount || 0,
             extractedConcepts: d.extractedConcepts || [],
             fileSize: d.sizeBytes ? `${(d.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : '0.00 MB',
             title: d.name || 'Untitled Document',
+            fileName: d.name || '',
+            uploadedAt: new Date().toISOString(),
+            summary: d.summary || '',
           })),
         });
       }
@@ -681,14 +832,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resReqs = await apiFetch<Requirement[]>(`/api/v1/projects/${pid}/requirements`);
+      const resReqs = await apiFetch<RawRequirement[]>(`/api/v1/projects/${pid}/requirements`);
       if (resReqs.success) {
         set({
-          requirements: (resReqs.response || []).map((r: any) => ({
+          requirements: (resReqs.response || []).map((r: RawRequirement) => ({
             ...r,
             type: mapReqTypeB2F(r.type),
             priority: mapPriorityB2F(r.priority),
             status: mapReqStatusB2F(r.status),
+            linkedDocIds: r.linkedDocIds || [],
+            linkedTaskIds: r.linkedTaskIds || [],
+            linkedKnowledgeIds: r.linkedKnowledgeIds || [],
           })),
         });
       }
@@ -699,7 +853,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const pid = get().currentProjectId;
     if (!pid) return;
 
-    const backendUpdates: any = { ...updates };
+    const backendUpdates: Record<string, unknown> = { ...updates };
     if (updates.type) backendUpdates.type = mapReqTypeF2B(updates.type);
     if (updates.priority) backendUpdates.priority = mapPriorityF2B(updates.priority);
     if (updates.status) backendUpdates.status = mapReqStatusF2B(updates.status);
@@ -710,14 +864,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resReqs = await apiFetch<Requirement[]>(`/api/v1/projects/${pid}/requirements`);
+      const resReqs = await apiFetch<RawRequirement[]>(`/api/v1/projects/${pid}/requirements`);
       if (resReqs.success) {
         set({
-          requirements: (resReqs.response || []).map((r: any) => ({
+          requirements: (resReqs.response || []).map((r: RawRequirement) => ({
             ...r,
             type: mapReqTypeB2F(r.type),
             priority: mapPriorityB2F(r.priority),
             status: mapReqStatusB2F(r.status),
+            linkedDocIds: r.linkedDocIds || [],
+            linkedTaskIds: r.linkedTaskIds || [],
+            linkedKnowledgeIds: r.linkedKnowledgeIds || [],
           })),
         });
       }
@@ -733,14 +890,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resReqs = await apiFetch<Requirement[]>(`/api/v1/projects/${pid}/requirements`);
+      const resReqs = await apiFetch<RawRequirement[]>(`/api/v1/projects/${pid}/requirements`);
       if (resReqs.success) {
         set({
-          requirements: (resReqs.response || []).map((r: any) => ({
+          requirements: (resReqs.response || []).map((r: RawRequirement) => ({
             ...r,
             type: mapReqTypeB2F(r.type),
             priority: mapPriorityB2F(r.priority),
             status: mapReqStatusB2F(r.status),
+            linkedDocIds: r.linkedDocIds || [],
+            linkedTaskIds: r.linkedTaskIds || [],
+            linkedKnowledgeIds: r.linkedKnowledgeIds || [],
           })),
         });
       }
@@ -759,13 +919,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resConfs = await apiFetch<Conflict[]>(`/api/v1/projects/${pid}/conflicts`);
+      const resConfs = await apiFetch<RawConflict[]>(`/api/v1/projects/${pid}/conflicts`);
       if (resConfs.success) {
         set({
-          conflicts: (resConfs.response || []).map((c: any) => ({
+          conflicts: (resConfs.response || []).map((c: RawConflict) => ({
             ...c,
+            category: c.category as ConflictCategory,
             severity: mapConflictSeverityB2F(c.severity),
             status: mapConflictStatusB2F(c.status),
+            conflictingArtifacts: (c.conflictingArtifacts || []).map((art) => ({
+              id: art.id,
+              title: art.title,
+              type: art.type as 'Document' | 'Requirement' | 'GitHub Code' | 'Task' | 'Knowledge',
+            })),
+            aiExplanation: c.aiExplanation || '',
+            suggestedAction: c.suggestedAction || '',
           })),
         });
       }
@@ -789,14 +957,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resTasks = await apiFetch<Task[]>(`/api/v1/projects/${pid}/tasks`);
+      const resTasks = await apiFetch<RawTask[]>(`/api/v1/projects/${pid}/tasks`);
       if (resTasks.success) {
         set({
-          tasks: (resTasks.response || []).map((t: any) => ({
+          tasks: (resTasks.response || []).map((t: RawTask) => ({
             ...t,
             linkedRequirementId: t.requirementId,
             status: mapTaskStatusB2F(t.status),
             priority: mapPriorityB2F(t.priority),
+            tags: t.tags || [],
           })),
         });
       }
@@ -813,14 +982,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resTasks = await apiFetch<Task[]>(`/api/v1/projects/${pid}/tasks`);
+      const resTasks = await apiFetch<RawTask[]>(`/api/v1/projects/${pid}/tasks`);
       if (resTasks.success) {
         set({
-          tasks: (resTasks.response || []).map((t: any) => ({
+          tasks: (resTasks.response || []).map((t: RawTask) => ({
             ...t,
             linkedRequirementId: t.requirementId,
             status: mapTaskStatusB2F(t.status),
             priority: mapPriorityB2F(t.priority),
+            tags: t.tags || [],
           })),
         });
       }
@@ -831,7 +1001,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const pid = get().currentProjectId;
     if (!pid) return;
 
-    const backendUpdates: any = { ...updates };
+    const backendUpdates: Record<string, unknown> = { ...updates };
     if (updates.linkedRequirementId !== undefined) {
       backendUpdates.requirementId = updates.linkedRequirementId;
       delete backendUpdates.linkedRequirementId;
@@ -845,14 +1015,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resTasks = await apiFetch<Task[]>(`/api/v1/projects/${pid}/tasks`);
+      const resTasks = await apiFetch<RawTask[]>(`/api/v1/projects/${pid}/tasks`);
       if (resTasks.success) {
         set({
-          tasks: (resTasks.response || []).map((t: any) => ({
+          tasks: (resTasks.response || []).map((t: RawTask) => ({
             ...t,
             linkedRequirementId: t.requirementId,
             status: mapTaskStatusB2F(t.status),
             priority: mapPriorityB2F(t.priority),
+            tags: t.tags || [],
           })),
         });
       }
@@ -868,14 +1039,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     if (res.success) {
-      const resTasks = await apiFetch<Task[]>(`/api/v1/projects/${pid}/tasks`);
+      const resTasks = await apiFetch<RawTask[]>(`/api/v1/projects/${pid}/tasks`);
       if (resTasks.success) {
         set({
-          tasks: (resTasks.response || []).map((t: any) => ({
+          tasks: (resTasks.response || []).map((t: RawTask) => ({
             ...t,
             linkedRequirementId: t.requirementId,
             status: mapTaskStatusB2F(t.status),
             priority: mapPriorityB2F(t.priority),
+            tags: t.tags || [],
           })),
         });
       }
@@ -1012,7 +1184,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   login: async (email, password) => {
-    const res = await apiFetch<any>('/api/v1/auth/login', {
+    const res = await apiFetch<AuthResponse>('/api/v1/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
       skipAuth: true,
@@ -1024,11 +1196,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const userProfile: UserProfile = {
         id: res.response.userId || `user-${Date.now()}`,
-        name: fullName,
+        name: fullName || '',
         email: email,
         avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
         githubConnected: !!res.response.githubToken,
-        githubUsername: userName,
+        githubUsername: userName || '',
         joinedAt: res.response.createdAt || new Date().toISOString(),
       };
 
@@ -1050,7 +1222,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   register: async (email, password, userName, fullName) => {
-    const res = await apiFetch<any>('/api/v1/auth/register', {
+    const res = await apiFetch<AuthResponse>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password, userName, fullName }),
       skipAuth: true,
@@ -1084,9 +1256,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   logout: async () => {
-    if (typeof window !== 'undefined' && (window as any).__queuePollInterval) {
-      clearInterval((window as any).__queuePollInterval);
-      delete (window as any).__queuePollInterval;
+    if (typeof window !== 'undefined' && window.__queuePollInterval) {
+      clearInterval(window.__queuePollInterval);
+      delete window.__queuePollInterval;
     }
 
     const refresh = getRefreshToken();

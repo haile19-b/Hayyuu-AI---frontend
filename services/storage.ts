@@ -14,7 +14,6 @@ import {
   NotificationItem,
   WorkflowJob,
   UserProfile,
-  TaskStatus,
 } from '@/types';
 
 import {
@@ -573,7 +572,8 @@ export class StorageService {
   }
 
   // Unified Search Across All Project Artifacts
-  static performUnifiedSearch(projectId: string, query: string, mode: 'keyword' | 'semantic' | 'hybrid' | 'graph'): SearchResult[] {
+  static performUnifiedSearch(projectId: string, query: string, _mode: 'keyword' | 'semantic' | 'hybrid' | 'graph'): SearchResult[] {
+    void _mode;
     if (!query || query.trim().length === 0) return [];
     const q = query.toLowerCase().trim();
     const results: SearchResult[] = [];
