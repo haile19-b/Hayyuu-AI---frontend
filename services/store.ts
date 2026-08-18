@@ -244,6 +244,7 @@ interface AppState {
   // Hydration safety flag
   isHydrated: boolean;
   lastVisitedProjectId: string | undefined;
+  isWorkspaceLoading: boolean;
 
   // Operations / Actions
   hydrateStore: (initialRouteInfo?: { projectId?: string; section?: NavigationSection }) => void;
@@ -342,6 +343,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isAuthModalOpen: false,
   isCreateProjectModalOpen: false,
   lastVisitedProjectId: undefined,
+  isWorkspaceLoading: false,
 
   projects: [],
   user: { id: '', name: '', email: '', avatarUrl: '', githubConnected: false, joinedAt: '' } as UserProfile,
@@ -585,130 +587,140 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
-    StorageService.setActiveProjectId(projectId);
+    set({ isWorkspaceLoading: true });
+    try {
+      StorageService.setActiveProjectId(projectId);
 
-    const [resDocs, resReqs, resTasks, resConfs] = await Promise.all([
-      apiFetch<RawDocument[]>(`/api/v1/projects/${projectId}/documents`),
-      apiFetch<RawRequirement[]>(`/api/v1/projects/${projectId}/requirements`),
-      apiFetch<RawTask[]>(`/api/v1/projects/${projectId}/tasks`),
-      apiFetch<RawConflict[]>(`/api/v1/projects/${projectId}/conflicts`),
-    ]);
+      const [resDocs, resReqs, resTasks, resConfs] = await Promise.all([
+        apiFetch<RawDocument[]>(`/api/v1/projects/${projectId}/documents`),
+        apiFetch<RawRequirement[]>(`/api/v1/projects/${projectId}/requirements`),
+        apiFetch<RawTask[]>(`/api/v1/projects/${projectId}/tasks`),
+        apiFetch<RawConflict[]>(`/api/v1/projects/${projectId}/conflicts`),
+      ]);
 
-    const docs = resDocs.success
-      ? (resDocs.response || []).map((d: RawDocument) => ({
-          ...d,
-          status: mapDocStatusB2F(d.status),
-          chunksCount: d.chunksCount || 0,
-          extractedConcepts: d.extractedConcepts || [],
-          fileSize: d.sizeBytes ? `${(d.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : '0.00 MB',
-          title: d.name || 'Untitled Document',
-          fileName: d.name || '',
-          uploadedAt: new Date().toISOString(),
-          summary: d.summary || '',
-        }))
-      : [];
-    const reqs = resReqs.success
-      ? (resReqs.response || []).map((r: RawRequirement) => ({
-          ...r,
-          type: mapReqTypeB2F(r.type),
-          priority: mapPriorityB2F(r.priority),
-          status: mapReqStatusB2F(r.status),
-          linkedDocIds: r.linkedDocIds || [],
-          linkedTaskIds: r.linkedTaskIds || [],
-          linkedKnowledgeIds: r.linkedKnowledgeIds || [],
-        }))
-      : [];
-    const tasks = resTasks.success
-      ? (resTasks.response || []).map((t: RawTask) => ({
-          ...t,
-          linkedRequirementId: t.requirementId,
-          status: mapTaskStatusB2F(t.status),
-          priority: mapPriorityB2F(t.priority),
-          tags: t.tags || [],
-        }))
-      : [];
-    const conflicts = resConfs.success
-      ? (resConfs.response || []).map((c: RawConflict) => ({
-          ...c,
-          category: c.category as ConflictCategory,
-          severity: mapConflictSeverityB2F(c.severity),
-          status: mapConflictStatusB2F(c.status),
-          conflictingArtifacts: (c.conflictingArtifacts || []).map((art) => ({
-            id: art.id,
-            title: art.title,
-            type: art.type as 'Document' | 'Requirement' | 'GitHub Code' | 'Task' | 'Knowledge',
-          })),
-          aiExplanation: c.aiExplanation || '',
-          suggestedAction: c.suggestedAction || '',
-        }))
-      : [];
+      const docs = resDocs.success
+        ? (resDocs.response || []).map((d: RawDocument) => ({
+            ...d,
+            status: mapDocStatusB2F(d.status),
+            chunksCount: d.chunksCount || 0,
+            extractedConcepts: d.extractedConcepts || [],
+            fileSize: d.sizeBytes ? `${(d.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : '0.00 MB',
+            title: d.name || 'Untitled Document',
+            fileName: d.name || '',
+            uploadedAt: new Date().toISOString(),
+            summary: d.summary || '',
+          }))
+        : [];
+      const reqs = resReqs.success
+        ? (resReqs.response || []).map((r: RawRequirement) => ({
+            ...r,
+            type: mapReqTypeB2F(r.type),
+            priority: mapPriorityB2F(r.priority),
+            status: mapReqStatusB2F(r.status),
+            linkedDocIds: r.linkedDocIds || [],
+            linkedTaskIds: r.linkedTaskIds || [],
+            linkedKnowledgeIds: r.linkedKnowledgeIds || [],
+          }))
+        : [];
+      const tasks = resTasks.success
+        ? (resTasks.response || []).map((t: RawTask) => ({
+            ...t,
+            linkedRequirementId: t.requirementId,
+            status: mapTaskStatusB2F(t.status),
+            priority: mapPriorityB2F(t.priority),
+            tags: t.tags || [],
+          }))
+        : [];
+      const conflicts = resConfs.success
+        ? (resConfs.response || []).map((c: RawConflict) => ({
+            ...c,
+            category: c.category as ConflictCategory,
+            severity: mapConflictSeverityB2F(c.severity),
+            status: mapConflictStatusB2F(c.status),
+            conflictingArtifacts: (c.conflictingArtifacts || []).map((art) => ({
+              id: art.id,
+              title: art.title,
+              type: art.type as 'Document' | 'Requirement' | 'GitHub Code' | 'Task' | 'Knowledge',
+            })),
+            aiExplanation: c.aiExplanation || '',
+            suggestedAction: c.suggestedAction || '',
+          }))
+        : [];
 
-    const ghInfo = StorageService.getGitHubRepoInfo(projectId);
-    const knEntities = StorageService.getKnowledgeEntities(projectId);
-    const memories = StorageService.getMemories(projectId);
-    const conversations = StorageService.getConversations(projectId);
+      const ghInfo = StorageService.getGitHubRepoInfo(projectId);
+      const knEntities = StorageService.getKnowledgeEntities(projectId);
+      const memories = StorageService.getMemories(projectId);
+      const conversations = StorageService.getConversations(projectId);
 
-    set({
-      currentProjectId: projectId,
-      activeSection: section || 'overview',
-      selectedRequirementId: null,
-      selectedTaskId: null,
-      documents: docs,
-      requirements: reqs,
-      conflicts: conflicts,
-      tasks: tasks,
-      githubInfo: ghInfo,
-      knowledgeEntities: knEntities,
-      memories: memories,
-      conversations: conversations,
-      activeConversationId: conversations[0]?.id,
-    });
+      set({
+        currentProjectId: projectId,
+        activeSection: section || 'overview',
+        selectedRequirementId: null,
+        selectedTaskId: null,
+        documents: docs,
+        requirements: reqs,
+        conflicts: conflicts,
+        tasks: tasks,
+        githubInfo: ghInfo,
+        knowledgeEntities: knEntities,
+        memories: memories,
+        conversations: conversations,
+        activeConversationId: conversations[0]?.id,
+      });
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('hayyuu_last_visited_project_id', projectId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('hayyuu_last_visited_project_id', projectId);
+      }
+      set({ lastVisitedProjectId: projectId });
+    } finally {
+      set({ isWorkspaceLoading: false });
     }
-    set({ lastVisitedProjectId: projectId });
   },
 
   createProject: async (data) => {
-    const res = await apiFetch<Project>('/api/v1/projects', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: data.name,
-        description: data.description,
-      }),
-    });
+    set({ isWorkspaceLoading: true, currentPage: 'app', activeSection: 'overview' });
+    try {
+      const res = await apiFetch<Project>('/api/v1/projects', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: data.name,
+          description: data.description,
+        }),
+      });
 
-    if (res.success && res.response) {
-      const newProj = res.response;
+      if (res.success && res.response) {
+        const newProj = res.response;
 
-      if (data.initialUploadedDocs && data.initialUploadedDocs.length > 0) {
-        for (const doc of data.initialUploadedDocs) {
-          const formData = new FormData();
-          let fileObj: File;
+        if (data.initialUploadedDocs && data.initialUploadedDocs.length > 0) {
+          for (const doc of data.initialUploadedDocs) {
+            const formData = new FormData();
+            let fileObj: File;
 
-          if (doc.file) {
-            fileObj = doc.file;
-          } else {
-            const blob = new Blob([doc.content || ''], { type: 'text/markdown' });
-            fileObj = new File([blob], doc.fileName, { type: 'text/markdown' });
+            if (doc.file) {
+              fileObj = doc.file;
+            } else {
+              const blob = new Blob([doc.content || ''], { type: 'text/markdown' });
+              fileObj = new File([blob], doc.fileName, { type: 'text/markdown' });
+            }
+
+            formData.append('file', fileObj);
+            await apiFetch(`/api/v1/projects/${newProj.id}/documents`, {
+              method: 'POST',
+              body: formData,
+            });
           }
-
-          formData.append('file', fileObj);
-          await apiFetch(`/api/v1/projects/${newProj.id}/documents`, {
-            method: 'POST',
-            body: formData,
-          });
         }
-      }
 
-      const resProj = await apiFetch<Project[]>('/api/v1/projects');
-      if (resProj.success && resProj.response) {
-        set({ projects: resProj.response });
-      }
+        const resProj = await apiFetch<Project[]>('/api/v1/projects');
+        if (resProj.success && resProj.response) {
+          set({ projects: resProj.response });
+        }
 
-      await get().selectProject(newProj.id);
-      set({ activeSection: 'overview' });
+        await get().selectProject(newProj.id);
+        set({ activeSection: 'overview' });
+      }
+    } finally {
+      set({ isWorkspaceLoading: false });
     }
   },
 

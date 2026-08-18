@@ -26,6 +26,13 @@ import { UnifiedSearchView } from '@/components/project/UnifiedSearchView';
 import { SettingsView } from '@/components/project/SettingsView';
 import { Brain, RefreshCw } from 'lucide-react';
 import { KnowledgeType, NavigationSection } from '@/types';
+import {
+  ProjectOverviewSkeleton,
+  RequirementsSkeleton,
+  TasksSkeleton,
+  DocumentsSkeleton,
+  ConflictsSkeleton,
+} from '@/components/ui/PageSkeletons';
 
 const parsePathToState = (path: string) => {
   const segments = path.split('/').filter(Boolean);
@@ -250,8 +257,22 @@ export default function Home() {
             }}
           />
 
-          {store.activeSection === 'projects' && (
-            <DashboardView
+          {store.isWorkspaceLoading ? (
+            store.activeSection === 'requirements' ? (
+              <RequirementsSkeleton />
+            ) : store.activeSection === 'tasks' ? (
+              <TasksSkeleton />
+            ) : store.activeSection === 'documents' ? (
+              <DocumentsSkeleton />
+            ) : store.activeSection === 'conflicts' ? (
+              <ConflictsSkeleton />
+            ) : (
+              <ProjectOverviewSkeleton />
+            )
+          ) : (
+            <>
+              {store.activeSection === 'projects' && (
+                <DashboardView
               projects={store.projects}
               user={store.user}
               onSelectProject={store.selectProject}
@@ -469,7 +490,9 @@ export default function Home() {
               />
             )
           )}
-        </main>
+        </>
+      )}
+    </main>
 
         {/* Right AI Context Inspector Panel */}
         <ContextInspector
