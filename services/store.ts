@@ -25,6 +25,7 @@ import {
   ConflictSeverity,
   ConflictStatus,
   ConflictCategory,
+  AISuggestion,
 } from '@/types';
 
 declare global {
@@ -88,6 +89,16 @@ interface RawConflict {
   aiExplanation?: string;
   suggestedAction?: string;
   detectedAt: string;
+}
+
+interface RawSuggestion {
+  id: string;
+  projectId: string;
+  type: string;
+  content: any;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface QueueJob {
@@ -229,6 +240,7 @@ interface AppState {
   documents: ProjectDocument[];
   requirements: Requirement[];
   conflicts: Conflict[];
+  suggestions: AISuggestion[];
   tasks: Task[];
   githubInfo: GitHubRepoInfo;
   knowledgeEntities: KnowledgeEntity[];
@@ -291,6 +303,9 @@ interface AppState {
 
   // Conflicts
   resolveConflict: (id: string, status: 'Resolved' | 'Ignored') => void;
+
+  // Suggestions
+  updateSuggestionStatus: (id: string, status: 'ACCEPTED' | 'REJECTED') => void;
 
   // Tasks
   addTask: (task: Partial<Task>) => void;
@@ -360,6 +375,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   documents: [],
   requirements: [],
   conflicts: [],
+  suggestions: [],
   tasks: [],
   githubInfo: {
     isConnected: false,
@@ -582,6 +598,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         documents: [],
         requirements: [],
         conflicts: [],
+        suggestions: [],
         tasks: [],
         knowledgeEntities: [],
         memories: [],
@@ -595,11 +612,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       StorageService.setActiveProjectId(projectId);
 
-      const [resDocs, resReqs, resTasks, resConfs] = await Promise.all([
+      const [resDocs, resReqs, resTasks, resConfs, resSugs] = await Promise.all([
         apiFetch<RawDocument[]>(`/api/v1/projects/${projectId}/documents`),
         apiFetch<RawRequirement[]>(`/api/v1/projects/${projectId}/requirements`),
         apiFetch<RawTask[]>(`/api/v1/projects/${projectId}/tasks`),
         apiFetch<RawConflict[]>(`/api/v1/projects/${projectId}/conflicts`),
+        apiFetch<RawSuggestion[]>(`/api/v1/projects/${projectId}/suggestions`),
       ]);
 
       const docs = resDocs.success
@@ -651,6 +669,33 @@ export const useAppStore = create<AppState>((set, get) => ({
           }))
         : [];
 
+      const suggestions = resSugs.success && resSugs.response && resSugs.response.length > 0
+        ? resSugs.response.map((s: RawSuggestion) => {
+            let contentObj = s.content;
+            if (typeof contentObj === 'string') {
+              try {
+                contentObj = JSON.parse(contentObj);
+              } catch (e) {
+                console.error("Error parsing suggestion content JSON:", e);
+              }
+            }
+            return {
+              id: s.id,
+              projectId: s.projectId,
+              type: s.type,
+              content: {
+                title: contentObj?.title || '',
+                description: contentObj?.description || '',
+                reasoning: contentObj?.reasoning || '',
+                category: contentObj?.category || '',
+              },
+              status: s.status as 'PENDING' | 'ACCEPTED' | 'REJECTED',
+              createdAt: s.createdAt,
+              updatedAt: s.updatedAt,
+            };
+          })
+        : StorageService.getSuggestions(projectId);
+
       const ghInfo = StorageService.getGitHubRepoInfo(projectId);
       const knEntities = StorageService.getKnowledgeEntities(projectId);
       const memories = StorageService.getMemories(projectId);
@@ -664,6 +709,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         documents: docs,
         requirements: reqs,
         conflicts: conflicts,
+        suggestions: suggestions,
         tasks: tasks,
         githubInfo: ghInfo,
         knowledgeEntities: knEntities,
@@ -977,6 +1023,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       }
     }
+  },
+
+  // Suggestions Operations
+  updateSuggestionStatus: async (id, status) => {
+    const pid = get().currentProjectId;
+    if (!pid) return;
+
+    // Update local storage persistence
+    StorageService.updateSuggestionStatus(pid, id, status);
+
+    // Update store state
+    const updatedSugs = get().suggestions.map((s) =>
+      s.id === id ? { ...s, status } : s
+    );
+    set({ suggestions: updatedSugs });
   },
 
   // Task Operations

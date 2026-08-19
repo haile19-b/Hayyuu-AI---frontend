@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowLeft,
+  Sparkles,
 } from 'lucide-react';
 import { NavigationSection, Project } from '@/types';
 
@@ -27,6 +28,7 @@ interface SidebarProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   activeConflictsCount: number;
+  pendingSuggestionsCount: number;
 }
 
 interface NavItem {
@@ -44,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed,
   onToggleCollapse,
   activeConflictsCount,
+  pendingSuggestionsCount,
 }) => {
   // Determine if we should show project-specific sidebar tabs
   const isProjectActive = !!currentProject && activeSection !== 'projects' && activeSection !== 'search';
@@ -61,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'chat', label: 'AI Chat', icon: Bot, highlight: true },
     { id: 'documents', label: 'Documents', icon: FileText, badge: currentProject?.documentsCount },
     { id: 'requirements', label: 'Requirements', icon: FileCheck2, badge: currentProject?.requirementsCount },
+    { id: 'suggestions', label: 'AI Suggestions', icon: Sparkles, badge: pendingSuggestionsCount },
     { id: 'conflicts', label: 'Conflicts & Risks', icon: AlertTriangle, badge: activeConflictsCount },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, badge: currentProject?.tasksCount },
     { id: 'github', label: 'GitHub Sync', icon: Github },
@@ -164,6 +168,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-semibold ${
                     item.id === 'conflicts'
                       ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                      : item.id === 'suggestions'
+                      ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
                       : isActive
                       ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'

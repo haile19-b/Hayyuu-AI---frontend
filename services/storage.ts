@@ -14,6 +14,7 @@ import {
   NotificationItem,
   WorkflowJob,
   UserProfile,
+  AISuggestion,
 } from '@/types';
 
 import {
@@ -30,6 +31,7 @@ import {
   initialConversations,
   initialNotifications,
   initialWorkflowJobs,
+  initialSuggestions,
 } from './mockData';
 
 const STORAGE_KEYS = {
@@ -39,6 +41,7 @@ const STORAGE_KEYS = {
   DOCUMENTS: 'hayyuu_documents',
   REQUIREMENTS: 'hayyuu_requirements',
   CONFLICTS: 'hayyuu_conflicts',
+  SUGGESTIONS: 'hayyuu_suggestions',
   TASKS: 'hayyuu_tasks',
   GITHUB: 'hayyuu_github',
   KNOWLEDGE: 'hayyuu_knowledge_entities',
@@ -324,6 +327,23 @@ export class StorageService {
     const activeCount = list.filter((c) => c.status === 'Active' || c.status === 'Investigating').length;
     this.updateProject(projectId, { conflictsCount: activeCount });
     return conflict;
+  }
+
+  // Suggestions
+  static getSuggestions(projectId: string): AISuggestion[] {
+    const sugMap = getItem<Record<string, AISuggestion[]>>(STORAGE_KEYS.SUGGESTIONS, initialSuggestions);
+    return sugMap[projectId] || [];
+  }
+
+  static updateSuggestionStatus(projectId: string, suggestionId: string, status: 'ACCEPTED' | 'REJECTED'): void {
+    const sugMap = getItem<Record<string, AISuggestion[]>>(STORAGE_KEYS.SUGGESTIONS, initialSuggestions);
+    const list = sugMap[projectId] || [];
+    const item = list.find((s) => s.id === suggestionId);
+    if (item) {
+      item.status = status;
+      sugMap[projectId] = list;
+      setItem(STORAGE_KEYS.SUGGESTIONS, sugMap);
+    }
   }
 
   // Tasks

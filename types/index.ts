@@ -4,6 +4,7 @@ export type NavigationSection =
   | 'chat'
   | 'documents'
   | 'requirements'
+  | 'suggestions'
   | 'conflicts'
   | 'tasks'
   | 'github'
@@ -253,4 +254,19 @@ export interface WorkflowJob {
   progress: number;
   startedAt: string;
   details: string;
+}
+
+export interface AISuggestion {
+  id: string;
+  projectId: string;
+  type: string; // e.g. "gap_analysis"
+  content: {
+    title: string;
+    description: string;
+    reasoning: string;
+    category: string;
+  };
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  createdAt: string;
+  updatedAt: string;
 }

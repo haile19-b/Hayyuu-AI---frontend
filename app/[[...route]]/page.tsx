@@ -18,6 +18,7 @@ import { AiChatView } from '@/components/project/AiChatView';
 import { DocumentsView } from '@/components/project/DocumentsView';
 import { RequirementsView } from '@/components/project/RequirementsView';
 import { ConflictsView } from '@/components/project/ConflictsView';
+import { SuggestionsView } from '@/components/project/SuggestionsView';
 import { TasksView } from '@/components/project/TasksView';
 import { GitHubView } from '@/components/project/GitHubView';
 import { KnowledgeView } from '@/components/project/KnowledgeView';
@@ -237,6 +238,7 @@ export default function Home() {
             isCollapsed={store.isSidebarCollapsed}
             onToggleCollapse={() => store.setIsSidebarCollapsed(!store.isSidebarCollapsed)}
             activeConflictsCount={activeConflictsCount}
+            pendingSuggestionsCount={store.suggestions.filter((s) => s.status === 'PENDING').length}
           />
         </div>
 
@@ -287,6 +289,7 @@ export default function Home() {
                 documents={store.documents}
                 requirements={store.requirements}
                 conflicts={store.conflicts}
+                suggestions={store.suggestions}
                 tasks={store.tasks}
                 githubInfo={store.githubInfo}
                 knowledgeEntities={store.knowledgeEntities}
@@ -373,6 +376,14 @@ export default function Home() {
               project={currentProject}
               conflicts={store.conflicts}
               onResolveConflict={store.resolveConflict}
+            />
+          )}
+
+          {store.activeSection === 'suggestions' && currentProject && (
+            <SuggestionsView
+              project={currentProject}
+              suggestions={store.suggestions}
+              onUpdateSuggestionStatus={store.updateSuggestionStatus}
             />
           )}
 
