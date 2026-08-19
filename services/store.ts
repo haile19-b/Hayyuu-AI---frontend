@@ -438,10 +438,14 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           currentPage = 'app';
         } else {
-          clearTokens();
+          if (!getRefreshToken()) {
+            clearTokens();
+          }
         }
       } else {
-        clearTokens();
+        if (!getRefreshToken()) {
+          clearTokens();
+        }
       }
     }
 

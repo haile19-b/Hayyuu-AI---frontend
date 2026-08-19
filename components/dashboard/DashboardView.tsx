@@ -35,12 +35,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [sortBy, setSortBy] = useState<'updated' | 'created' | 'name' | 'risks'>('updated');
   const [statusFilter, setStatusFilter] = useState<'all' | 'has_risks' | 'no_risks'>('all');
 
-  // Overall statistics across projects
-  const totalDocuments = projects.reduce((sum, p) => sum + (p.documentsCount || 0), 0);
-  const totalRequirements = projects.reduce((sum, p) => sum + (p.requirementsCount || 0), 0);
-  const totalTasks = projects.reduce((sum, p) => sum + (p.tasksCount || 0), 0);
-  const totalRisks = projects.reduce((sum, p) => sum + (p.conflictsCount || 0), 0);
-
   // Find recently visited project (or fallback to recently updated)
   const lastVisitedProjectId = useAppStore((state) => state.lastVisitedProjectId);
   const recentlyActiveProject = projects.find((p) => p.id === lastVisitedProjectId) || [...projects].sort(
@@ -57,8 +51,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       if (!matchesSearch) return false;
 
-      if (statusFilter === 'has_risks') return p.conflictsCount > 0;
-      if (statusFilter === 'no_risks') return p.conflictsCount === 0;
+      if (statusFilter === 'has_risks') return (p.conflictsCount || 0) > 0;
+      if (statusFilter === 'no_risks') return (p.conflictsCount || 0) === 0;
 
       return true;
     })
@@ -162,18 +156,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </p>
 
                   <div className="flex flex-wrap items-center gap-4 text-xs pt-1 text-slate-600 dark:text-slate-400">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                      {recentlyActiveProject.documentsCount} Documents
-                    </span>
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <FileCheck2 className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                      {recentlyActiveProject.requirementsCount} Requirements
-                    </span>
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <CheckSquare className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                      {recentlyActiveProject.tasksCount} Tasks
-                    </span>
+                    {(recentlyActiveProject.documentsCount || 0) > 0 && (
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                        {recentlyActiveProject.documentsCount} Documents
+                      </span>
+                    )}
+                    {(recentlyActiveProject.requirementsCount || 0) > 0 && (
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <FileCheck2 className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                        {recentlyActiveProject.requirementsCount} Requirements
+                      </span>
+                    )}
+                    {(recentlyActiveProject.tasksCount || 0) > 0 && (
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <CheckSquare className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                        {recentlyActiveProject.tasksCount} Tasks
+                      </span>
+                    )}
+                    {(recentlyActiveProject.conflictsCount || 0) > 0 && (
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                        {recentlyActiveProject.conflictsCount} Conflicts
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -346,18 +352,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       {/* Right: Metrics, Updated Date, & Open Button */}
                       <div className="flex items-center justify-between md:justify-end gap-5 text-xs text-slate-600 dark:text-slate-400 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
                         <div className="flex items-center gap-3 text-[11px] font-semibold">
-                          <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Documents">
-                            <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                            {proj.documentsCount}
-                          </span>
-                          <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Requirements">
-                            <FileCheck2 className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                            {proj.requirementsCount}
-                          </span>
-                          <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Tasks">
-                            <CheckSquare className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                            {proj.tasksCount}
-                          </span>
+                          {(proj.documentsCount || 0) > 0 && (
+                            <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Documents">
+                              <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                              {proj.documentsCount}
+                            </span>
+                          )}
+                          {(proj.requirementsCount || 0) > 0 && (
+                            <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Requirements">
+                              <FileCheck2 className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                              {proj.requirementsCount}
+                            </span>
+                          )}
+                          {(proj.tasksCount || 0) > 0 && (
+                            <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Tasks">
+                              <CheckSquare className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                              {proj.tasksCount}
+                            </span>
+                          )}
+                          {(proj.conflictsCount || 0) > 0 && (
+                            <span className="flex items-center gap-1 text-slate-700 dark:text-slate-300" title="Conflicts">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                              {proj.conflictsCount}
+                            </span>
+                          )}
                         </div>
 
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono hidden xl:block">
@@ -457,32 +475,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 text-[10px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg flex items-center gap-2">
               <Sparkles className="w-3.5 h-3.5 text-blue-500 shrink-0" />
               <span>Spec updates automatically re-index the project vector graph.</span>
-            </div>
-          </div>
-
-          {/* Compact Knowledge Stats Card */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-2xs space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Knowledge Engine Stats
-            </h3>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Total Specs</div>
-                <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100 mt-0.5">{totalDocuments}</div>
-              </div>
-              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Rules Extracted</div>
-                <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100 mt-0.5">{totalRequirements}</div>
-              </div>
-              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Action Items</div>
-                <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100 mt-0.5">{totalTasks}</div>
-              </div>
-              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Detected Risks</div>
-                <div className="text-base font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">{totalRisks}</div>
-              </div>
             </div>
           </div>
         </div>

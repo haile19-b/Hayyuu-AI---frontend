@@ -39,7 +39,10 @@ async function performTokenRefresh(): Promise<string | null> {
     });
 
     if (!res.ok) {
-      throw new Error('Refresh token invalid or expired');
+      if (res.status === 400 || res.status === 401) {
+        clearTokens();
+      }
+      throw new Error(`Refresh token invalid or expired (HTTP ${res.status})`);
     }
 
     const data = await res.json();
@@ -47,11 +50,10 @@ async function performTokenRefresh(): Promise<string | null> {
       setTokens(data.response.accessToken, data.response.refreshToken);
       return data.response.accessToken;
     }
-    clearTokens();
     return null;
   } catch (err) {
     console.error('Failed to auto-refresh auth tokens:', err);
-    clearTokens();
+    // Do NOT wipe tokens on network / connection errors
     return null;
   }
 }
