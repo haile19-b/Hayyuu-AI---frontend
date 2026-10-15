@@ -93,7 +93,7 @@ export const ProjectOverviewView: React.FC<ProjectOverviewViewProps> = ({
 
 
 
-  const [selectedBranch, setSelectedBranch] = useState('feature/new-login');
+  const [selectedBranch, setSelectedBranch] = useState(githubInfo?.branch || 'main');
   const [loadingBranch, setLoadingBranch] = useState(false);
   const handleBranchChange = (branch: string) => {
     setLoadingBranch(true);
@@ -103,20 +103,15 @@ export const ProjectOverviewView: React.FC<ProjectOverviewViewProps> = ({
     }, 800);
   };
 
-  const mockOverviewCommits = [
-    { message: 'Update Auth: user profile + update...', author: 'J. Doe', time: 'a few mins ago' },
-    { message: "Schema fix: added 'role' field", author: 'A. Smith', time: '1 hour ago' },
-    { message: 'Minor UI polish on settings', author: 'M. Chen', time: '3 hours ago' },
-  ];
+  const availableBranches =
+    githubInfo?.branches && githubInfo.branches.length > 0
+      ? githubInfo.branches
+      : [{ name: githubInfo?.branch || 'main', isDefault: true }];
 
-  const globalDummyBranches = [
-    { name: 'main', isDefault: true },
-    { name: 'develop', isDefault: false },
-    { name: 'feature/auth-oidc', isDefault: false },
-    { name: 'feature/idempotency-redis', isDefault: false },
-    { name: 'feature/new-login', isDefault: false },
-    { name: 'hotfix/ledger-deadlock', isDefault: false },
-  ];
+  const isGitHubConnected = Boolean(
+    (githubInfo?.isConnected || (project?.githubInstallationId && project?.githubRepoName)) &&
+    (githubInfo?.repoName || (githubInfo?.assignedRepositories && githubInfo.assignedRepositories.length > 0) || project?.githubRepoName)
+  );
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-6 space-y-6 transition-colors no-scrollbar select-none">
@@ -290,70 +285,107 @@ export const ProjectOverviewView: React.FC<ProjectOverviewViewProps> = ({
           </div>
         </div>
 
-        {/* GitHub Project Stats Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px_240px] gap-6 border-t border-slate-200 dark:border-slate-800 pt-4 text-xs">
-          {/* Commits */}
-          <div className="space-y-1.5">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-              Recent Commits (last 3)
-            </span>
-            {loadingBranch ? (
-              <div className="flex items-center gap-2 py-2 text-slate-500">
-                <Loader2 className="w-4 h-4 animate-spin text-purple-600 dark:text-purple-400" />
-                <span>Loading branch commits...</span>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {mockOverviewCommits.map((c, i) => (
-                  <div key={i} className="flex justify-between items-center text-xs gap-4 py-0.5 border-b border-slate-100 dark:border-slate-800/40 last:border-0">
-                    <span className="text-slate-800 dark:text-slate-200 truncate font-semibold flex-1 leading-snug" title={c.message}>{c.message}</span>
-                    <span className="text-slate-500 dark:text-slate-450 font-medium text-[10px] shrink-0">by {c.author} ({c.time})</span>
+        {/* GitHub Project Stats Row / Connect Callout */}
+        {!isGitHubConnected ? (
+          <div className="border-t border-slate-200 dark:border-slate-800 pt-4">
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-300 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-lg bg-slate-900 dark:bg-slate-800 text-white shrink-0">
+                  <Github className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    GitHub Repository Not Connected
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                      Disconnected
+                    </span>
                   </div>
-                ))}
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Connect a repository to enable real-time commit tracking, pull request monitoring, and code-to-requirement traceability.
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* Metrics */}
-          <div className="space-y-2 lg:border-l lg:border-slate-200 lg:dark:border-slate-800 lg:pl-6">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-              Overall Metrics
-            </span>
-            <div className="flex items-center gap-6 mt-1">
-              <div>
-                <span className="text-slate-505 dark:text-slate-400 text-xs font-semibold">Open PRs:</span>{' '}
-                <span className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400">{githubInfo.openPullRequestsCount || 7}</span>
-              </div>
-              <div>
-                <span className="text-slate-505 dark:text-slate-400 text-xs font-semibold">Open Issues:</span>{' '}
-                <span className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-500">{githubInfo.openIssuesCount || 14}</span>
-              </div>
+              <button
+                type="button"
+                onClick={() => onNavigateSection('github')}
+                className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
+              >
+                <Github className="w-3.5 h-3.5" /> Connect GitHub Repository
+              </button>
             </div>
           </div>
-
-          {/* Branch Selector Dropdown */}
-          <div className="space-y-2 lg:border-l lg:border-slate-200 lg:dark:border-slate-800 lg:pl-6">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-              Current Branch
-            </span>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm truncate max-w-[130px]">{selectedBranch}</span>
-              <div className="relative inline-block text-left">
-                <select
-                  value={selectedBranch}
-                  onChange={(e) => handleBranchChange(e.target.value)}
-                  className="px-2 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-250 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-xs text-slate-700 dark:text-slate-200 focus:outline-hidden font-semibold cursor-pointer transition-colors"
-                >
-                  {globalDummyBranches.map((br) => (
-                    <option key={br.name} value={br.name} className="bg-slate-50 dark:bg-slate-900 text-slate-850 dark:text-slate-100">
-                      {br.name}
-                    </option>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px_240px] gap-6 border-t border-slate-200 dark:border-slate-800 pt-4 text-xs">
+            {/* Commits */}
+            <div className="space-y-1.5">
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                Recent Commits (last 3)
+              </span>
+              {loadingBranch ? (
+                <div className="flex items-center gap-2 py-2 text-slate-500">
+                  <Loader2 className="w-4 h-4 animate-spin text-purple-600 dark:text-purple-400" />
+                  <span>Loading branch commits...</span>
+                </div>
+              ) : (githubInfo.recentCommits || []).length === 0 ? (
+                <div className="text-xs text-slate-400 py-1 font-medium">No commits on current branch</div>
+              ) : (
+                <div className="space-y-1">
+                  {(githubInfo.recentCommits || []).slice(0, 3).map((c, i) => (
+                    <div key={c.hash || i} className="flex justify-between items-center text-xs gap-4 py-0.5 border-b border-slate-100 dark:border-slate-800/40 last:border-0">
+                      <span className="text-slate-800 dark:text-slate-200 truncate font-semibold flex-1 leading-snug" title={c.message}>{c.message}</span>
+                      <span className="text-slate-500 dark:text-slate-450 font-medium text-[10px] shrink-0">by {c.author} {c.date ? `(${new Date(c.date).toLocaleDateString()})` : ''}</span>
+                    </div>
                   ))}
-                </select>
+                </div>
+              )}
+            </div>
+
+            {/* Metrics */}
+            <div className="space-y-2 lg:border-l lg:border-slate-200 lg:dark:border-slate-800 lg:pl-6">
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                Overall Metrics
+              </span>
+              <div className="flex items-center gap-6 mt-1">
+                <div>
+                  <span className="text-slate-505 dark:text-slate-400 text-xs font-semibold">Open PRs:</span>{' '}
+                  <span className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400">
+                    {githubInfo.openPullRequestsCount ?? (githubInfo.recentPRs?.filter(p => p.status === 'open').length ?? 0)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-505 dark:text-slate-400 text-xs font-semibold">Open Issues:</span>{' '}
+                  <span className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-500">
+                    {githubInfo.openIssuesCount ?? (githubInfo.recentIssues?.length ?? 0)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Branch Selector Dropdown */}
+            <div className="space-y-2 lg:border-l lg:border-slate-200 lg:dark:border-slate-800 lg:pl-6">
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                Current Branch
+              </span>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm truncate max-w-[130px]">{selectedBranch}</span>
+                <div className="relative inline-block text-left">
+                  <select
+                    value={selectedBranch}
+                    onChange={(e) => handleBranchChange(e.target.value)}
+                    className="px-2 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-250 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-xs text-slate-700 dark:text-slate-200 focus:outline-hidden font-semibold cursor-pointer transition-colors"
+                  >
+                    {availableBranches.map((br) => (
+                      <option key={br.name} value={br.name} className="bg-slate-50 dark:bg-slate-900 text-slate-850 dark:text-slate-100">
+                        {br.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Footer Traceability Row */}
         <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-500 dark:text-slate-400 gap-2">
