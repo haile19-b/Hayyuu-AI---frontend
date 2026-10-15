@@ -80,6 +80,37 @@ export default function Home() {
     });
   }, [hydrateStore]);
 
+  // Handle GitHub App installation callback (supports popup postMessage & direct redirect)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const installationId = urlParams.get('installation_id');
+    const state = urlParams.get('state');
+
+    if (installationId) {
+      if (window.opener) {
+        window.opener.postMessage(
+          {
+            type: 'HAYYUU_GITHUB_INSTALLED',
+            installationId,
+            state,
+          },
+          '*'
+        );
+        window.close();
+      } else {
+        const activePid = store.currentProjectId || (store.projects.length > 0 ? store.projects[0].id : undefined);
+        if (activePid) {
+          void store.connectGitHubInstallation(activePid, installationId, state || undefined).then(() => {
+            const cleanUrl = `/projects/${activePid}/settings`;
+            window.history.replaceState({}, document.title, cleanUrl);
+            store.setActiveSection('settings');
+          });
+        }
+      }
+    }
+  }, [store]);
+
   // Synchronize store changes to browser URL path
   useEffect(() => {
     if (!store.isHydrated) return;
@@ -413,7 +444,7 @@ export default function Home() {
               project={currentProject}
               githubInfo={store.githubInfo}
               onRefreshSync={() => {
-                store.updateProject(currentProject.id, {});
+                void store.fetchGitHubLiveData(currentProject.id);
               }}
             />
           )}
