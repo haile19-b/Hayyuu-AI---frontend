@@ -24,7 +24,6 @@ import {
   initialRequirements,
   initialConflicts,
   initialTasks,
-  initialGitHubRepoInfo,
   initialKnowledgeEntities,
   initialKnowledgeRelations,
   initialMemoryItems,
@@ -400,25 +399,32 @@ export class StorageService {
 
   // GitHub Info
   static getGitHubRepoInfo(projectId: string): GitHubRepoInfo {
-    const ghMap = getItem<Record<string, GitHubRepoInfo>>(STORAGE_KEYS.GITHUB, initialGitHubRepoInfo);
+    const ghMap = getItem<Record<string, GitHubRepoInfo>>(STORAGE_KEYS.GITHUB, {});
     return (
       ghMap[projectId] || {
         isConnected: false,
         repoName: '',
         branch: 'main',
-        lastSyncAt: new Date().toISOString(),
+        branches: [],
+        lastSyncAt: '',
         openIssuesCount: 0,
         openPullRequestsCount: 0,
         recentCommits: [],
         recentPRs: [],
         recentIssues: [],
         implementationSignals: [],
+        accessibleRepositories: [],
+        assignedRepositories: [],
+        activeRepository: null,
+        suggestedInstallationId: null,
+        isLoadingLive: false,
+        liveError: null,
       }
     );
   }
 
   static updateGitHubRepoInfo(projectId: string, updates: Partial<GitHubRepoInfo>): GitHubRepoInfo {
-    const ghMap = getItem<Record<string, GitHubRepoInfo>>(STORAGE_KEYS.GITHUB, initialGitHubRepoInfo);
+    const ghMap = getItem<Record<string, GitHubRepoInfo>>(STORAGE_KEYS.GITHUB, {});
     const current = this.getGitHubRepoInfo(projectId);
     const updated = { ...current, ...updates, lastSyncAt: new Date().toISOString() };
     ghMap[projectId] = updated;
@@ -687,7 +693,7 @@ export class StorageService {
             id: `commit-${c.hash}`,
             title: `Commit ${c.hash}: ${c.message}`,
             type: 'github',
-            snippet: `Authored by ${c.author} on ${new Date(c.date).toLocaleDateString()}`,
+            snippet: `Authored by ${c.author}${c.date ? ` on ${new Date(c.date).toLocaleDateString()}` : ''}`,
             relevanceScore: 0.88,
             section: 'github',
             metadata: { commitHash: c.hash },

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { StorageService } from './storage';
 import { apiFetch, clearTokens, setTokens, getAccessToken, getRefreshToken, getOrRefreshToken } from './api';
+import { GitHubApiService } from './githubService';
 import {
   Project,
   NavigationSection,
@@ -95,7 +96,7 @@ interface RawSuggestion {
   id: string;
   projectId: string;
   type: string;
-  content: any;
+  content: { title?: string; description?: string; reasoning?: string; category?: string } | string | null | undefined;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -336,6 +337,15 @@ interface AppState {
   // Job state simulations
   simulateJobState: (status: AiJobStateStatus) => void;
 
+  // GitHub Integration
+  fetchGitHubStatus: (projectId: string) => Promise<void>;
+  connectGitHubInstallation: (projectId: string, installationId: string, state?: string, selectedRepos?: string[]) => Promise<{ success: boolean; error?: string }>;
+  selectGitHubRepository: (projectId: string, owner: string, repo: string) => Promise<{ success: boolean; error?: string }>;
+  assignGitHubRepositories: (projectId: string, repositories: { owner: string; repo: string }[], activeRepo?: string) => Promise<{ success: boolean; error?: string }>;
+  fetchGitHubLiveData: (projectId: string, repo?: string, branch?: string) => Promise<void>;
+  changeGitHubBranch: (projectId: string, branch: string, repo?: string) => Promise<void>;
+  disconnectGitHub: (projectId: string, repo?: string) => Promise<{ success: boolean; error?: string }>;
+
   // Auth Operations
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: UserProfile }>;
   register: (email: string, password: string, userName: string, fullName: string) => Promise<{ success: boolean; error?: string; user?: UserProfile }>;
@@ -381,6 +391,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     isConnected: false,
     repoName: '',
     branch: 'main',
+    branches: [],
     lastSyncAt: '',
     openIssuesCount: 0,
     openPullRequestsCount: 0,
@@ -388,6 +399,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     recentPRs: [],
     recentIssues: [],
     implementationSignals: [],
+    accessibleRepositories: [],
+    assignedRepositories: [],
+    activeRepository: null,
+    suggestedInstallationId: null,
+    isLoadingLive: false,
+    liveError: null,
   },
   knowledgeEntities: [],
   memories: [],
@@ -671,14 +688,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const suggestions = resSugs.success && resSugs.response && resSugs.response.length > 0
         ? resSugs.response.map((s: RawSuggestion) => {
-            let contentObj = s.content;
-            if (typeof contentObj === 'string') {
+            let parsedContent = s.content;
+            if (typeof parsedContent === 'string') {
               try {
-                contentObj = JSON.parse(contentObj);
+                parsedContent = JSON.parse(parsedContent);
               } catch (e) {
                 console.error("Error parsing suggestion content JSON:", e);
               }
             }
+            const contentObj = (parsedContent && typeof parsedContent === 'object') ? parsedContent : null;
             return {
               id: s.id,
               projectId: s.projectId,
@@ -722,6 +740,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         localStorage.setItem('hayyuu_last_visited_project_id', projectId);
       }
       set({ lastVisitedProjectId: projectId });
+      if (projectId) {
+        void get().fetchGitHubStatus(projectId);
+      }
     } finally {
       set({ isWorkspaceLoading: false });
     }
@@ -805,6 +826,182 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().selectProject(undefined);
         set({ activeSection: 'projects' });
       }
+    }
+  },
+
+  // GitHub Integration Actions
+  fetchGitHubStatus: async (projectId: string) => {
+    try {
+      const res = await GitHubApiService.getStatus(projectId);
+      if (res.success && res.response) {
+        const status = res.response;
+        const currentGh = get().githubInfo;
+        const updatedGh: GitHubRepoInfo = {
+          ...currentGh,
+          isConnected: status.isConnected,
+          repoName: status.repoName || currentGh.repoName,
+          repoOwner: status.repoOwner,
+          repoUrl: status.repoUrl,
+          installationId: status.installationId,
+          connectedAt: status.connectedAt,
+          accessibleRepositories: status.accessibleRepositories || [],
+          assignedRepositories: status.assignedRepositories || [],
+          activeRepository: status.activeRepository || null,
+          suggestedInstallationId: status.suggestedInstallationId || null,
+        };
+        set({ githubInfo: updatedGh });
+
+        // Synchronize project in store's project array
+        const updatedProjects = get().projects.map((p) => {
+          if (p.id === projectId) {
+            return {
+              ...p,
+              githubInstallationId: status.installationId,
+              githubRepoOwner: status.repoOwner,
+              githubRepoName: status.repoName,
+              githubRepoUrl: status.repoUrl,
+              githubConnectedAt: status.connectedAt,
+              repositoryUrl: status.repoUrl || p.repositoryUrl,
+            };
+          }
+          return p;
+        });
+        set({ projects: updatedProjects });
+
+        // If connected and has an active repository, automatically fetch real-time live data
+        if (status.isConnected && (status.repoName || (status.assignedRepositories && status.assignedRepositories.length > 0))) {
+          const targetRepo = status.repoName || status.assignedRepositories[0].name;
+          void get().fetchGitHubLiveData(projectId, targetRepo);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not fetch GitHub status:', err);
+    }
+  },
+
+  fetchGitHubLiveData: async (projectId: string, repo?: string, branch?: string) => {
+    const currentGh = get().githubInfo;
+    set({ githubInfo: { ...currentGh, isLoadingLive: true, liveError: null } });
+
+    try {
+      const targetRepo = repo || currentGh.repoName || undefined;
+      const res = await GitHubApiService.getLiveData(projectId, targetRepo, branch);
+      if (res.success && res.response) {
+        const live = res.response;
+        set({
+          githubInfo: {
+            ...get().githubInfo,
+            isConnected: true,
+            repoName: live.repoName,
+            repoOwner: live.repoOwner,
+            repoUrl: live.repoUrl,
+            branch: live.activeBranch,
+            branches: live.branches || [],
+            recentCommits: live.commits || [],
+            recentPRs: live.pullRequests || [],
+            recentIssues: live.issues || [],
+            openIssuesCount: live.openIssuesCount,
+            openPullRequestsCount: live.openPRsCount,
+            lastSyncAt: live.syncedAt,
+            isLoadingLive: false,
+            liveError: null,
+          },
+        });
+      } else {
+        set({
+          githubInfo: {
+            ...get().githubInfo,
+            isLoadingLive: false,
+            liveError: res.error || 'Failed to fetch repository live data',
+          },
+        });
+      }
+    } catch (err) {
+      set({
+        githubInfo: {
+          ...get().githubInfo,
+          isLoadingLive: false,
+          liveError: err instanceof Error ? err.message : 'Failed to fetch live repository data',
+        },
+      });
+    }
+  },
+
+  changeGitHubBranch: async (projectId: string, branch: string, repo?: string) => {
+    const currentGh = get().githubInfo;
+    set({ githubInfo: { ...currentGh, branch, isLoadingLive: true } });
+
+    try {
+      const targetRepo = repo || currentGh.repoName || undefined;
+      const res = await GitHubApiService.getCommits(projectId, targetRepo, branch);
+      if (res.success && res.response) {
+        set({
+          githubInfo: {
+            ...get().githubInfo,
+            branch,
+            recentCommits: res.response,
+            isLoadingLive: false,
+          },
+        });
+      } else {
+        // Fallback to full live summary if commits endpoint had an issue
+        await get().fetchGitHubLiveData(projectId, targetRepo, branch);
+      }
+    } catch (err) {
+      console.error('Error changing GitHub branch:', err);
+      set({ githubInfo: { ...get().githubInfo, isLoadingLive: false } });
+    }
+  },
+
+  connectGitHubInstallation: async (projectId: string, installationId: string, state?: string, selectedRepos?: string[]) => {
+    try {
+      const res = await GitHubApiService.connectInstallation(projectId, installationId, state, selectedRepos);
+      if (res.success && res.response) {
+        await get().fetchGitHubStatus(projectId);
+        return { success: true };
+      }
+      return { success: false, error: res.error || 'Failed to connect GitHub installation' };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  },
+
+  selectGitHubRepository: async (projectId: string, owner: string, repo: string) => {
+    try {
+      const res = await GitHubApiService.selectRepository(projectId, owner, repo);
+      if (res.success && res.response) {
+        await get().fetchGitHubStatus(projectId);
+        return { success: true };
+      }
+      return { success: false, error: res.error || 'Failed to link repository' };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  },
+
+  assignGitHubRepositories: async (projectId: string, repositories: { owner: string; repo: string }[], activeRepo?: string) => {
+    try {
+      const res = await GitHubApiService.assignRepositories(projectId, repositories, activeRepo);
+      if (res.success && res.response) {
+        await get().fetchGitHubStatus(projectId);
+        return { success: true };
+      }
+      return { success: false, error: res.error || 'Failed to assign repositories' };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  },
+
+  disconnectGitHub: async (projectId: string, repo?: string) => {
+    try {
+      const res = await GitHubApiService.disconnect(projectId, repo);
+      if (res.success) {
+        await get().fetchGitHubStatus(projectId);
+        return { success: true };
+      }
+      return { success: false, error: res.error || 'Failed to disconnect repository' };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
     }
   },
 
