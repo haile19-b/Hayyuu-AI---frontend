@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Github,
   GitBranch,
@@ -12,14 +12,11 @@ import {
   CheckCircle2,
   ShieldCheck,
   Loader2,
-  Users,
   GitMerge,
   Plus,
   Unlink,
   Lock,
   Check,
-  ChevronDown,
-  Search,
   FolderGit2,
   XCircle,
   Clock,
@@ -58,7 +55,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
   const [disconnecting, setDisconnecting] = useState<boolean>(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState<'current' | 'all' | null>(null);
   const [showAddRepoModal, setShowAddRepoModal] = useState<boolean>(false);
-  const [searchRepoQuery, setSearchRepoQuery] = useState<string>('');
+  const [userSelectedRepo, setUserSelectedRepo] = useState<string>('');
   const [directRepoInput, setDirectRepoInput] = useState<string>('');
   const [showManualInput, setShowManualInput] = useState<boolean>(false);
   const [manualInstallationId, setManualInstallationId] = useState<string>('');
@@ -66,13 +63,6 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
-
-  // Fetch initial status on mount
-  useEffect(() => {
-    if (project?.id) {
-      void store.fetchGitHubStatus(project.id);
-    }
-  }, [project?.id, store]);
 
   // Derived active repository and multi-repo state
   const assignedRepos: ProjectRepository[] = githubInfo.assignedRepositories || [];
@@ -88,12 +78,6 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
       : project.githubRepoOwner && project.githubRepoName
       ? `${project.githubRepoOwner}/${project.githubRepoName}`
       : '');
-
-  const activeRepoOwner =
-    activeAssignedRepo?.owner ||
-    githubInfo.repoOwner ||
-    project.githubRepoOwner ||
-    (activeRepoFullName.includes('/') ? activeRepoFullName.split('/')[0] : '');
 
   const activeRepoName =
     activeAssignedRepo?.name ||
@@ -114,9 +98,14 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
 
   // Accessible repositories from GitHub App
   const accessibleRepos: GitHubRepositoryItem[] = githubInfo.accessibleRepositories || [];
-  const filteredAccessibleRepos = accessibleRepos.filter((r) =>
-    r.fullName.toLowerCase().includes(searchRepoQuery.toLowerCase())
-  );
+
+  // Derived active accessible repo selection (no setState in effect needed)
+  const selectedAccessibleRepo =
+    userSelectedRepo && accessibleRepos.some((r) => r.fullName === userSelectedRepo)
+      ? userSelectedRepo
+      : accessibleRepos.find((r) => !r.isClaimedByOtherProject)?.fullName ||
+        accessibleRepos[0]?.fullName ||
+        '';
 
   // Branch data
   const branches = githubInfo.branches || [];
@@ -134,6 +123,83 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
     githubInfo.openPullRequestsCount ||
     0;
   const issuesCount = issues.length || githubInfo.openIssuesCount || 0;
+
+  // Keep project ref updated for lifecycle events without triggering re-runs
+  const projectRef = useRef(project);
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
+  // Sync lifecycle: Fetch status and conditionally sync live data based on 90s inactivity or initial load
+  useEffect(() => {
+    if (!project?.id) return;
+
+    void (async () => {
+      const state = useAppStore.getState();
+      await state.fetchGitHubStatus(project.id);
+
+      const latestGh = useAppStore.getState().githubInfo;
+      const hasExistingData = (latestGh.recentCommits && latestGh.recentCommits.length > 0) || !!latestGh.lastSyncAt;
+      const lastLeft = useAppStore.getState().lastLeftGitHubAt;
+      const awayDuration = lastLeft ? Date.now() - lastLeft : null;
+      const isAwayOver90Seconds = awayDuration !== null && awayDuration > 90_000;
+
+      if (!hasExistingData || isAwayOver90Seconds) {
+        const assigned = latestGh.assignedRepositories || [];
+        const activeAssigned = assigned.find((r) => r.isActive) || assigned[0] || null;
+        const targetRepo =
+          activeAssigned?.fullName ||
+          (latestGh.repoOwner && latestGh.repoName
+            ? `${latestGh.repoOwner}/${latestGh.repoName}`
+            : project.githubRepoOwner && project.githubRepoName
+            ? `${project.githubRepoOwner}/${project.githubRepoName}`
+            : undefined);
+
+        if (targetRepo) {
+          const targetBranch = latestGh.branch || 'main';
+          void useAppStore.getState().fetchGitHubLiveData(project.id, targetRepo, targetBranch);
+        }
+        useAppStore.getState().setLastLeftGitHubAt(null);
+      }
+    })();
+  }, [project?.id, project.githubRepoOwner, project.githubRepoName]);
+
+  // Track when user leaves the GitHub Sync view or switches browser tabs
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const storeState = useAppStore.getState();
+      if (document.hidden) {
+        storeState.setLastLeftGitHubAt(Date.now());
+      } else {
+        const lastLeft = storeState.lastLeftGitHubAt;
+        const currentProj = projectRef.current;
+        if (lastLeft && Date.now() - lastLeft > 90_000 && currentProj?.id) {
+          const latestGh = storeState.githubInfo;
+          const assigned = latestGh.assignedRepositories || [];
+          const activeAssigned = assigned.find((r) => r.isActive) || assigned[0] || null;
+          const targetRepo =
+            activeAssigned?.fullName ||
+            (latestGh.repoOwner && latestGh.repoName
+              ? `${latestGh.repoOwner}/${latestGh.repoName}`
+              : currentProj.githubRepoOwner && currentProj.githubRepoName
+              ? `${currentProj.githubRepoOwner}/${currentProj.githubRepoName}`
+              : undefined);
+
+          if (targetRepo) {
+            const targetBranch = latestGh.branch || 'main';
+            void storeState.fetchGitHubLiveData(currentProj.id, targetRepo, targetBranch);
+          }
+        }
+        storeState.setLastLeftGitHubAt(null);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      useAppStore.getState().setLastLeftGitHubAt(Date.now());
+    };
+  }, []);
 
   // Actions
   const handleConnectApp = async () => {
@@ -444,10 +510,10 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
             </div>
           </div>
 
-          {/* Accessible Repositories Section (If user/app already authorized repositories) */}
+          {/* Accessible Repositories Dropdown Component */}
           {accessibleRepos.length > 0 && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 space-y-4 shadow-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-150 dark:border-slate-800 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                     <FolderGit2 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
@@ -459,83 +525,135 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                   </p>
                 </div>
 
-                <div className="relative w-full sm:w-64">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={searchRepoQuery}
-                    onChange={(e) => setSearchRepoQuery(e.target.value)}
-                    placeholder="Search repositories..."
-                    className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden"
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => void store.fetchGitHubStatus(project.id)}
+                  title="Refresh repository list"
+                  className="px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold flex items-center gap-1.5 self-start sm:self-auto cursor-pointer transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh List
+                </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[340px] overflow-y-auto pr-1 scrollbar-thin">
-                {filteredAccessibleRepos.map((repo) => {
-                  const isClaimed = repo.isClaimedByOtherProject;
-                  const isCurrentAssigned = repo.isAssignedToThisProject;
+              {/* Dropdown Selection & Connect Action */}
+              {(() => {
+                const currentAccessibleChoice =
+                  accessibleRepos.find((r) => r.fullName === selectedAccessibleRepo) ||
+                  accessibleRepos[0] ||
+                  null;
 
-                  return (
-                    <div
-                      key={repo.id}
-                      className={`p-3.5 rounded-lg border text-xs flex flex-col justify-between gap-2.5 transition-all ${
-                        isCurrentAssigned
-                          ? 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800'
-                          : isClaimed
-                          ? 'bg-slate-50/50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 opacity-60'
-                          : 'bg-white dark:bg-slate-850 border-slate-200 dark:border-slate-700/80 hover:border-blue-400 dark:hover:border-blue-600'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="font-mono font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
-                            <FolderGit2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                            {repo.fullName}
+                return (
+                  <div className="space-y-3">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Choose repository to connect:
+                    </label>
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <div className="relative flex-1">
+                        <select
+                          value={selectedAccessibleRepo}
+                          onChange={(e) => setUserSelectedRepo(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-medium text-slate-900 dark:text-slate-100 focus:outline-hidden cursor-pointer"
+                        >
+                          {accessibleRepos.map((repo) => {
+                            const statusLabel = repo.isAssignedToThisProject
+                              ? '✓ Already Assigned'
+                              : repo.isClaimedByOtherProject
+                              ? `🔒 Claimed by ${repo.claimedByProjectName || 'Other'}`
+                              : repo.private
+                              ? 'Private'
+                              : 'Public';
+                            return (
+                              <option
+                                key={repo.id}
+                                value={repo.fullName}
+                                disabled={repo.isClaimedByOtherProject && !repo.isAssignedToThisProject}
+                              >
+                                {repo.fullName} ({statusLabel})
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      {currentAccessibleChoice && (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectRepository(currentAccessibleChoice.owner, currentAccessibleChoice.name)}
+                          disabled={
+                            connecting ||
+                            (currentAccessibleChoice.isClaimedByOtherProject && !currentAccessibleChoice.isAssignedToThisProject)
+                          }
+                          className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                        >
+                          {connecting ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
+                            </>
+                          ) : currentAccessibleChoice.isAssignedToThisProject ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" /> Assigned
+                            </>
+                          ) : currentAccessibleChoice.isClaimedByOtherProject ? (
+                            <>
+                              <Lock className="w-3.5 h-3.5" /> Claimed by Other
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5" /> Connect Selected Repository
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Selected Repository Detail Card Preview */}
+                    {currentAccessibleChoice && (
+                      <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-xs space-y-2">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <FolderGit2 className="w-4 h-4 text-blue-600 shrink-0" />
+                            <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                              {currentAccessibleChoice.fullName}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                              {currentAccessibleChoice.private ? 'Private' : 'Public'}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                              default branch: {currentAccessibleChoice.defaultBranch || 'main'}
+                            </span>
                           </div>
-                          {repo.description && (
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
-                              {repo.description}
-                            </p>
+
+                          {currentAccessibleChoice.htmlUrl && (
+                            <a
+                              href={currentAccessibleChoice.htmlUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 font-semibold"
+                            >
+                              View on GitHub <ExternalLink className="w-3 h-3" />
+                            </a>
                           )}
                         </div>
 
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
-                          {repo.private ? 'Private' : 'Public'}
-                        </span>
-                      </div>
+                        {currentAccessibleChoice.description && (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2">
+                            {currentAccessibleChoice.description}
+                          </p>
+                        )}
 
-                      <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/60">
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                          default: {repo.defaultBranch || 'main'}
-                        </span>
-
-                        {isCurrentAssigned ? (
-                          <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                            <Check className="w-3 h-3" /> Assigned to this project
-                          </span>
-                        ) : isClaimed ? (
-                          <span
-                            className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1"
-                            title="A repository can belong to at most one project"
-                          >
-                            <Lock className="w-3 h-3" /> Claimed by {repo.claimedByProjectName || 'Other Project'}
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleSelectRepository(repo.owner, repo.name)}
-                            disabled={connecting}
-                            className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold text-[11px] flex items-center gap-1 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <Plus className="w-3 h-3" /> Connect to this Project
-                          </button>
+                        {currentAccessibleChoice.isClaimedByOtherProject && !currentAccessibleChoice.isAssignedToThisProject && (
+                          <div className="p-2 rounded bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[11px] flex items-center gap-1.5">
+                            <Lock className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                            <span>
+                              This repository is claimed by <strong>{currentAccessibleChoice.claimedByProjectName || 'another project'}</strong>. In Hayyuu AI, each repository is dedicated exclusively to one project environment.
+                            </span>
+                          </div>
                         )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -660,9 +778,21 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
 
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono truncate">
-                    {activeRepoFullName}
-                  </h2>
+                  {activeRepoUrl ? (
+                    <a
+                      href={activeRepoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono truncate hover:text-blue-600 dark:hover:text-blue-400 hover:underline inline-flex items-center gap-1.5"
+                    >
+                      {activeRepoFullName}
+                      <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                    </a>
+                  ) : (
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono truncate">
+                      {activeRepoFullName}
+                    </h2>
+                  )}
                   <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold flex items-center gap-1 shrink-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Connected
                   </span>
@@ -798,7 +928,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
           {/* Add Another Repo Modal / Dropdown Box */}
           {showAddRepoModal && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-3 shadow-md">
-              <div className="flex items-center justify-between border-b border-slate-150 dark:border-slate-800 pb-2">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                     Add Repository to {project.name}
@@ -989,9 +1119,20 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                                 </span>
                               </div>
 
-                              <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug line-clamp-2">
-                                {c.message}
-                              </div>
+                              {commitUrl ? (
+                                <a
+                                  href={commitUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-semibold text-slate-800 dark:text-slate-200 leading-snug line-clamp-2 hover:text-blue-600 dark:hover:text-blue-400 hover:underline block cursor-pointer"
+                                >
+                                  {c.message}
+                                </a>
+                              ) : (
+                                <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug line-clamp-2">
+                                  {c.message}
+                                </div>
+                              )}
 
                               <div className="text-[10px] text-slate-400 pt-0.5 flex items-center justify-between">
                                 <span>{c.date ? new Date(c.date).toLocaleString() : ''}</span>
@@ -1088,9 +1229,20 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                                 </div>
                               </div>
 
-                              <div className="font-semibold text-slate-900 dark:text-slate-100 leading-snug">
-                                {pr.title}
-                              </div>
+                              {prUrl ? (
+                                <a
+                                  href={prUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-semibold text-slate-900 dark:text-slate-100 leading-snug hover:text-purple-700 dark:hover:text-purple-300 hover:underline block cursor-pointer"
+                                >
+                                  {pr.title}
+                                </a>
+                              ) : (
+                                <div className="font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                                  {pr.title}
+                                </div>
+                              )}
 
                               <div className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-2 items-center pt-0.5">
                                 <span>Author: <strong>{pr.author}</strong></span>
@@ -1154,7 +1306,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                     </div>
 
                     {/* Split Section: Real Issues & Requirements Traceability */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-slate-150 dark:border-slate-800">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-slate-200 dark:border-slate-800">
                       {/* Left: Real Repository Issues */}
                       <div className="space-y-3">
                         <div className="flex items-center justify-between pb-1">
@@ -1212,9 +1364,20 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                                     </div>
                                   </div>
 
-                                  <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug">
-                                    {iss.title}
-                                  </div>
+                                  {issueUrl ? (
+                                    <a
+                                      href={issueUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="font-semibold text-slate-800 dark:text-slate-200 leading-snug hover:text-amber-700 dark:hover:text-amber-400 hover:underline block cursor-pointer"
+                                    >
+                                      {iss.title}
+                                    </a>
+                                  ) : (
+                                    <div className="font-semibold text-slate-800 dark:text-slate-200 leading-snug">
+                                      {iss.title}
+                                    </div>
+                                  )}
 
                                   {iss.createdAt && (
                                     <div className="text-[10px] text-slate-400">
