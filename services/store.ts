@@ -258,11 +258,13 @@ interface AppState {
   isHydrated: boolean;
   lastVisitedProjectId: string | undefined;
   isWorkspaceLoading: boolean;
+  lastLeftGitHubAt: number | null;
 
   // Operations / Actions
   hydrateStore: (initialRouteInfo?: { projectId?: string; section?: NavigationSection }) => void;
   setCurrentPage: (page: 'landing' | 'login' | 'signup' | 'app') => void;
   setActiveSection: (sec: NavigationSection) => void;
+  setLastLeftGitHubAt: (timestamp: number | null) => void;
   setSelectedTaskId: (id: string | null) => void;
   setSelectedRequirementId: (id: string | null) => void;
   setIsSidebarCollapsed: (val: boolean) => void;
@@ -416,6 +418,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   inspectorTools: undefined,
 
   isHydrated: false,
+  lastLeftGitHubAt: null,
 
   hydrateStore: async (initialRouteInfo) => {
     // Register event listener for unauthorized requests
@@ -590,12 +593,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setCurrentPage: (currentPage) => set({ currentPage }),
   setActiveSection: (activeSection) => {
+    const prevSection = get().activeSection;
+    if (prevSection === 'github' && activeSection !== 'github') {
+      set({ lastLeftGitHubAt: Date.now() });
+    }
     if (activeSection === 'projects') {
       StorageService.setActiveProjectId('');
       set({ currentProjectId: undefined, selectedRequirementId: null, selectedTaskId: null });
     }
     set({ activeSection, isMobileSidebarOpen: false });
   },
+  setLastLeftGitHubAt: (lastLeftGitHubAt) => set({ lastLeftGitHubAt }),
   setSelectedTaskId: (selectedTaskId) => set({ selectedTaskId }),
   setSelectedRequirementId: (selectedRequirementId) => set({ selectedRequirementId }),
   setIsSidebarCollapsed: (isSidebarCollapsed) => set({ isSidebarCollapsed }),
@@ -867,12 +875,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           return p;
         });
         set({ projects: updatedProjects });
-
-        // If connected and has an active repository, automatically fetch real-time live data
-        if (status.isConnected && (status.repoName || (status.assignedRepositories && status.assignedRepositories.length > 0))) {
-          const targetRepo = status.repoName || status.assignedRepositories[0].name;
-          void get().fetchGitHubLiveData(projectId, targetRepo);
-        }
       }
     } catch (err) {
       console.warn('Could not fetch GitHub status:', err);
@@ -971,6 +973,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await GitHubApiService.selectRepository(projectId, owner, repo);
       if (res.success && res.response) {
         await get().fetchGitHubStatus(projectId);
+        await get().fetchGitHubLiveData(projectId, `${owner}/${repo}`);
         return { success: true };
       }
       return { success: false, error: res.error || 'Failed to link repository' };
@@ -984,6 +987,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await GitHubApiService.assignRepositories(projectId, repositories, activeRepo);
       if (res.success && res.response) {
         await get().fetchGitHubStatus(projectId);
+        const target = activeRepo || (repositories.length > 0 ? `${repositories[0].owner}/${repositories[0].repo}` : undefined);
+        if (target) {
+          await get().fetchGitHubLiveData(projectId, target);
+        }
         return { success: true };
       }
       return { success: false, error: res.error || 'Failed to assign repositories' };
@@ -997,6 +1004,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await GitHubApiService.disconnect(projectId, repo);
       if (res.success) {
         await get().fetchGitHubStatus(projectId);
+        const gh = get().githubInfo;
+        if (gh.isConnected && gh.assignedRepositories && gh.assignedRepositories.length > 0) {
+          await get().fetchGitHubLiveData(projectId, gh.assignedRepositories[0].fullName);
+        }
         return { success: true };
       }
       return { success: false, error: res.error || 'Failed to disconnect repository' };
