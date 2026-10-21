@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowLeft,
+  Sparkles,
 } from 'lucide-react';
 import { NavigationSection, Project } from '@/types';
 
@@ -27,6 +28,7 @@ interface SidebarProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   activeConflictsCount: number;
+  pendingSuggestionsCount: number;
 }
 
 interface NavItem {
@@ -44,7 +46,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed,
   onToggleCollapse,
   activeConflictsCount,
+  pendingSuggestionsCount,
 }) => {
+  // Determine if we should show project-specific sidebar tabs
+  const isProjectActive = !!currentProject && activeSection !== 'projects' && activeSection !== 'search';
+
   // Global navigation items when NO project is selected
   const globalNavItems: NavItem[] = [
     { id: 'projects', label: 'All Projects', icon: Home },
@@ -58,6 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'chat', label: 'AI Chat', icon: Bot, highlight: true },
     { id: 'documents', label: 'Documents', icon: FileText, badge: currentProject?.documentsCount },
     { id: 'requirements', label: 'Requirements', icon: FileCheck2, badge: currentProject?.requirementsCount },
+    { id: 'suggestions', label: 'AI Suggestions', icon: Sparkles, badge: pendingSuggestionsCount },
     { id: 'conflicts', label: 'Conflicts & Risks', icon: AlertTriangle, badge: activeConflictsCount },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, badge: currentProject?.tasksCount },
     { id: 'github', label: 'GitHub Sync', icon: Github },
@@ -81,13 +88,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400 tracking-wider uppercase flex items-center gap-1">
-                {currentProject ? 'Active Project' : 'Hayyuu AI v1.0.0'}
+                {isProjectActive ? 'Active Project' : 'Hayyuu AI v1.0.0'}
               </div>
               <div
                 className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate mt-0.5"
-                title={currentProject?.name || 'All Projects Overview'}
+                title={isProjectActive ? currentProject?.name : 'All Projects Overview'}
               >
-                {currentProject ? currentProject.name : 'Global Projects Hub'}
+                {isProjectActive ? currentProject?.name : 'Global Projects Hub'}
               </div>
             </div>
           </div>
@@ -112,17 +119,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <nav className="flex-1 overflow-y-auto p-2 space-y-0.5 no-scrollbar">
         {!isCollapsed && (
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-3 pt-2 pb-1">
-            {currentProject ? 'Project Navigation' : 'Global Navigation'}
+            {isProjectActive ? 'Project Navigation' : 'Global Navigation'}
           </div>
         )}
 
         {/* If Project is active, provide a top "All Projects" switch button */}
-        {currentProject && (
+        {isProjectActive && (
           <button
             onClick={() => onNavigateSection('projects')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all mb-1 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 cursor-pointer ${
-              activeSection === 'projects' ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 font-bold' : ''
-            }`}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all mb-1 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 cursor-pointer"
             title={isCollapsed ? 'Switch / All Projects' : undefined}
           >
             <ArrowLeft className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
@@ -131,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* Render appropriate nav list */}
-        {(currentProject ? projectNavItems : globalNavItems).map((item) => {
+        {(isProjectActive ? projectNavItems : globalNavItems).map((item) => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;
 
@@ -163,6 +168,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-semibold ${
                     item.id === 'conflicts'
                       ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                      : item.id === 'suggestions'
+                      ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
                       : isActive
                       ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
@@ -185,7 +192,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* GitHub Repository Quick Footer */}
-      {!isCollapsed && currentProject?.repositoryUrl && (
+      {!isCollapsed && isProjectActive && currentProject?.repositoryUrl && (
         <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/50 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
           <Github className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
           <div className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-700 dark:text-slate-300">

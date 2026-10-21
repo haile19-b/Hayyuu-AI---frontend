@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Brain, Mail, Lock, Eye, EyeOff, User, ArrowLeft, ArrowRight, AtSign, CheckCircle2 } from 'lucide-react';
 import { UserProfile } from '@/types';
 import ThemeToggle from '@/app/theme-toggle';
+import { useAppStore } from '@/services/store';
 
 interface SignUpPageProps {
   onNavigateToLogin: () => void;
@@ -26,7 +27,9 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const registerAction = useAppStore((state) => state.register);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -51,22 +54,15 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({
     }
 
     setIsLoading(true);
+    const generatedUsername = userName || email.split('@')[0] || 'devuser';
+    const result = await registerAction(email, password, generatedUsername, fullName);
+    setIsLoading(false);
 
-    setTimeout(() => {
-      const generatedUsername = userName || email.split('@')[0] || 'devuser';
-      const userProfile: UserProfile = {
-        id: `user-${Date.now()}`,
-        name: fullName,
-        email: email,
-        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
-        githubConnected: true,
-        githubUsername: generatedUsername,
-        joinedAt: new Date().toISOString(),
-      };
-
-      setIsLoading(false);
-      onSignUpSuccess(userProfile);
-    }, 600);
+    if (result.success && result.user) {
+      onSignUpSuccess(result.user);
+    } else {
+      setError(result.error || 'Registration failed. Email or username might be already taken.');
+    }
   };
 
   const handleGoogleAuth = () => {

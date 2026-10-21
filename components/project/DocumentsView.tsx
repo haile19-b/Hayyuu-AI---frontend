@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   FileText,
   Upload,
@@ -13,7 +13,7 @@ import { ProjectDocument, Project } from '@/types';
 interface DocumentsViewProps {
   project: Project;
   documents: ProjectDocument[];
-  onAddDocument: (doc: { title: string; fileName: string; fileSize: string; fileType: string; summary?: string }) => void;
+  onAddDocument: (doc: { title: string; fileName: string; fileSize: string; fileType: string; summary?: string; file?: File }) => void;
   onDeleteDocument: (id: string) => void;
 }
 
@@ -25,12 +25,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<ProjectDocument | null>(null);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-
-  // Upload Form State
-  const [title, setTitle] = useState('');
-  const [fileType, setFileType] = useState('PDF');
-  const [summary, setSummary] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredDocs = documents.filter((d) =>
     d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -38,25 +33,34 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
     d.extractedConcepts.some((c) => c.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const handleUploadSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toUpperCase() || 'TXT';
+    const title = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+    const fileSize = `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
 
     onAddDocument({
-      title: title.trim(),
-      fileName: `${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}.${fileType.toLowerCase()}`,
-      fileSize: `${(Math.random() * 2 + 0.5).toFixed(1)} MB`,
-      fileType: fileType.toUpperCase(),
-      summary: summary.trim() || 'Uploaded software architecture and requirement documentation.',
+      title,
+      fileName: file.name,
+      fileSize,
+      fileType: ext,
+      file,
     });
-
-    setTitle('');
-    setSummary('');
-    setIsUploadModalOpen(false);
   };
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 p-6 space-y-6 transition-colors no-scrollbar select-none">
+      {/* Hidden file input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        className="hidden"
+        accept=".pdf,.docx,.doc,.txt,.md,.json,.yaml,.yml"
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
@@ -70,7 +74,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
         </div>
 
         <button
-          onClick={() => setIsUploadModalOpen(true)}
+          onClick={() => fileInputRef.current?.click()}
           className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
         >
           <Upload className="w-4 h-4" /> Upload Document
@@ -222,76 +226,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
         </div>
       )}
 
-      {/* Upload Modal */}
-      {isUploadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={() => setIsUploadModalOpen(false)} />
-          <div className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl p-6 text-slate-900 dark:text-slate-100 z-10">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 mb-4">
-              <h2 className="font-bold text-sm text-slate-900 dark:text-slate-100">Upload Project Document</h2>
-              <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <form onSubmit={handleUploadSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Document Title *</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. API Interface Spec v2.pdf"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">File Format</label>
-                <select
-                  value={fileType}
-                  onChange={(e) => setFileType(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500 font-medium cursor-pointer"
-                >
-                  <option value="PDF">PDF Document</option>
-                  <option value="DOCX">Microsoft Word (.docx)</option>
-                  <option value="MARKDOWN">Markdown (.md)</option>
-                  <option value="SQL">SQL Migration (.sql)</option>
-                  <option value="JSON">OpenAPI/JSON (.json)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Summary / Context</label>
-                <textarea
-                  value={summary}
-                  onChange={(e) => setSummary(e.target.value)}
-                  placeholder="Provide context for document indexing..."
-                  rows={3}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-blue-600 dark:focus:border-blue-500 resize-none font-sans"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsUploadModalOpen(false)}
-                  className="px-4 py-2 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs cursor-pointer"
-                >
-                  Upload & Vectorize
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

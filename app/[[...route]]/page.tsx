@@ -18,6 +18,7 @@ import { AiChatView } from '@/components/project/AiChatView';
 import { DocumentsView } from '@/components/project/DocumentsView';
 import { RequirementsView } from '@/components/project/RequirementsView';
 import { ConflictsView } from '@/components/project/ConflictsView';
+import { SuggestionsView } from '@/components/project/SuggestionsView';
 import { TasksView } from '@/components/project/TasksView';
 import { GitHubView } from '@/components/project/GitHubView';
 import { KnowledgeView } from '@/components/project/KnowledgeView';
@@ -25,18 +26,130 @@ import { MemoryView } from '@/components/project/MemoryView';
 import { UnifiedSearchView } from '@/components/project/UnifiedSearchView';
 import { SettingsView } from '@/components/project/SettingsView';
 import { Brain, RefreshCw } from 'lucide-react';
-import { KnowledgeType } from '@/types';
+import { KnowledgeType, NavigationSection } from '@/types';
+import {
+  ProjectOverviewSkeleton,
+  RequirementsSkeleton,
+  TasksSkeleton,
+  DocumentsSkeleton,
+  ConflictsSkeleton,
+} from '@/components/ui/PageSkeletons';
 
+const parsePathToState = (path: string) => {
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length === 0 || segments[0] === 'landing') {
+    return { currentPage: 'landing' as const, activeSection: 'projects' as const, currentProjectId: undefined };
+  }
+  if (segments[0] === 'login') {
+    return { currentPage: 'login' as const, activeSection: 'projects' as const, currentProjectId: undefined };
+  }
+  if (segments[0] === 'signup') {
+    return { currentPage: 'signup' as const, activeSection: 'projects' as const, currentProjectId: undefined };
+  }
+  if (segments[0] === 'projects') {
+    const projectId = segments[1];
+    const section = segments[2] as NavigationSection;
+    if (projectId) {
+      return {
+        currentPage: 'app' as const,
+        currentProjectId: projectId,
+        activeSection: section || ('overview' as const)
+      };
+    } else {
+      return {
+        currentPage: 'app' as const,
+        currentProjectId: undefined,
+        activeSection: 'projects' as const
+      };
+    }
+  }
+  return null;
+};
 
 export default function Home() {
   const store = useAppStore();
   const hydrateStore = useAppStore((state) => state.hydrateStore);
   const setActiveSection = useAppStore((state) => state.setActiveSection);
 
-  // Trigger state hydration upon client mount
+  // Trigger state hydration upon client mount, reading target path
   useEffect(() => {
-    hydrateStore();
+    const routeInfo = parsePathToState(window.location.pathname);
+    hydrateStore({
+      projectId: routeInfo?.currentProjectId,
+      section: routeInfo?.activeSection,
+    });
   }, [hydrateStore]);
+
+  // Handle GitHub App installation callback (supports popup postMessage & direct redirect)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const installationId = urlParams.get('installation_id');
+    const state = urlParams.get('state');
+
+    if (installationId) {
+      if (window.opener) {
+        window.opener.postMessage(
+          {
+            type: 'HAYYUU_GITHUB_INSTALLED',
+            installationId,
+            state,
+          },
+          '*'
+        );
+        window.close();
+      } else {
+        const activePid = store.currentProjectId || (store.projects.length > 0 ? store.projects[0].id : undefined);
+        if (activePid) {
+          void store.connectGitHubInstallation(activePid, installationId, state || undefined).then(() => {
+            const cleanUrl = `/projects/${activePid}/settings`;
+            window.history.replaceState({}, document.title, cleanUrl);
+            store.setActiveSection('settings');
+          });
+        }
+      }
+    }
+  }, [store]);
+
+  // Synchronize store changes to browser URL path
+  useEffect(() => {
+    if (!store.isHydrated) return;
+
+    let targetPath = '/';
+    if (store.currentPage === 'login') {
+      targetPath = '/login';
+    } else if (store.currentPage === 'signup') {
+      targetPath = '/signup';
+    } else if (store.currentPage === 'app') {
+      if (store.currentProjectId) {
+        targetPath = `/projects/${store.currentProjectId}/${store.activeSection}`;
+      } else {
+        targetPath = '/projects';
+      }
+    } else {
+      targetPath = '/';
+    }
+
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(null, '', targetPath);
+    }
+  }, [store.currentPage, store.currentProjectId, store.activeSection, store.isHydrated]);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const routeInfo = parsePathToState(window.location.pathname);
+      if (routeInfo) {
+        useAppStore.setState({
+          currentPage: routeInfo.currentPage,
+          currentProjectId: routeInfo.currentProjectId,
+          activeSection: routeInfo.activeSection,
+        });
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Keyboard shortcut Ctrl+K / Cmd+K Search
   useEffect(() => {
@@ -89,7 +202,6 @@ export default function Home() {
         onNavigateToSignUp={() => store.setCurrentPage('signup')}
         onNavigateToLanding={() => store.setCurrentPage('landing')}
         onLoginSuccess={(userProfile) => {
-          // Store's hydrate system updates it, but we can set manually
           useAppStore.setState({ user: userProfile });
           store.setCurrentPage('app');
           store.setActiveSection('projects');
@@ -157,6 +269,7 @@ export default function Home() {
             isCollapsed={store.isSidebarCollapsed}
             onToggleCollapse={() => store.setIsSidebarCollapsed(!store.isSidebarCollapsed)}
             activeConflictsCount={activeConflictsCount}
+            pendingSuggestionsCount={store.suggestions.filter((s) => s.status === 'PENDING').length}
           />
         </div>
 
@@ -177,8 +290,22 @@ export default function Home() {
             }}
           />
 
-          {store.activeSection === 'projects' && (
-            <DashboardView
+          {store.isWorkspaceLoading ? (
+            store.activeSection === 'requirements' ? (
+              <RequirementsSkeleton />
+            ) : store.activeSection === 'tasks' ? (
+              <TasksSkeleton />
+            ) : store.activeSection === 'documents' ? (
+              <DocumentsSkeleton />
+            ) : store.activeSection === 'conflicts' ? (
+              <ConflictsSkeleton />
+            ) : (
+              <ProjectOverviewSkeleton />
+            )
+          ) : (
+            <>
+              {store.activeSection === 'projects' && (
+                <DashboardView
               projects={store.projects}
               user={store.user}
               onSelectProject={store.selectProject}
@@ -193,6 +320,7 @@ export default function Home() {
                 documents={store.documents}
                 requirements={store.requirements}
                 conflicts={store.conflicts}
+                suggestions={store.suggestions}
                 tasks={store.tasks}
                 githubInfo={store.githubInfo}
                 knowledgeEntities={store.knowledgeEntities}
@@ -282,6 +410,14 @@ export default function Home() {
             />
           )}
 
+          {store.activeSection === 'suggestions' && currentProject && (
+            <SuggestionsView
+              project={currentProject}
+              suggestions={store.suggestions}
+              onUpdateSuggestionStatus={store.updateSuggestionStatus}
+            />
+          )}
+
           {store.activeSection === 'tasks' && currentProject && (
             <TasksView
               project={currentProject}
@@ -307,8 +443,8 @@ export default function Home() {
             <GitHubView
               project={currentProject}
               githubInfo={store.githubInfo}
-              onRefreshSync={() => {
-                store.updateProject(currentProject.id, {});
+              onRefreshSync={(repo?: string) => {
+                void store.fetchGitHubLiveData(currentProject.id, repo);
               }}
             />
           )}
@@ -396,7 +532,9 @@ export default function Home() {
               />
             )
           )}
-        </main>
+        </>
+      )}
+    </main>
 
         {/* Right AI Context Inspector Panel */}
         <ContextInspector
@@ -423,12 +561,10 @@ export default function Home() {
         isOpen={store.isAuthModalOpen}
         onClose={() => store.setIsAuthModalOpen(false)}
         user={store.user}
-        onUpdateUser={(profile) => {
-          useAppStore.setState({ user: { ...store.user, ...profile } });
-        }}
-        onLogOut={() => {
+        onUpdateUser={store.updateUser}
+        onLogOut={async () => {
           store.setIsAuthModalOpen(false);
-          store.setCurrentPage('landing');
+          await store.logout();
         }}
       />
 

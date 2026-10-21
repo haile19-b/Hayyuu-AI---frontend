@@ -14,7 +14,7 @@ import {
   NotificationItem,
   WorkflowJob,
   UserProfile,
-  TaskStatus,
+  AISuggestion,
 } from '@/types';
 
 import {
@@ -24,13 +24,13 @@ import {
   initialRequirements,
   initialConflicts,
   initialTasks,
-  initialGitHubRepoInfo,
   initialKnowledgeEntities,
   initialKnowledgeRelations,
   initialMemoryItems,
   initialConversations,
   initialNotifications,
   initialWorkflowJobs,
+  initialSuggestions,
 } from './mockData';
 
 const STORAGE_KEYS = {
@@ -40,6 +40,7 @@ const STORAGE_KEYS = {
   DOCUMENTS: 'hayyuu_documents',
   REQUIREMENTS: 'hayyuu_requirements',
   CONFLICTS: 'hayyuu_conflicts',
+  SUGGESTIONS: 'hayyuu_suggestions',
   TASKS: 'hayyuu_tasks',
   GITHUB: 'hayyuu_github',
   KNOWLEDGE: 'hayyuu_knowledge_entities',
@@ -327,6 +328,23 @@ export class StorageService {
     return conflict;
   }
 
+  // Suggestions
+  static getSuggestions(projectId: string): AISuggestion[] {
+    const sugMap = getItem<Record<string, AISuggestion[]>>(STORAGE_KEYS.SUGGESTIONS, initialSuggestions);
+    return sugMap[projectId] || [];
+  }
+
+  static updateSuggestionStatus(projectId: string, suggestionId: string, status: 'ACCEPTED' | 'REJECTED'): void {
+    const sugMap = getItem<Record<string, AISuggestion[]>>(STORAGE_KEYS.SUGGESTIONS, initialSuggestions);
+    const list = sugMap[projectId] || [];
+    const item = list.find((s) => s.id === suggestionId);
+    if (item) {
+      item.status = status;
+      sugMap[projectId] = list;
+      setItem(STORAGE_KEYS.SUGGESTIONS, sugMap);
+    }
+  }
+
   // Tasks
   static getTasks(projectId: string): Task[] {
     const tasksMap = getItem<Record<string, Task[]>>(STORAGE_KEYS.TASKS, initialTasks);
@@ -381,25 +399,32 @@ export class StorageService {
 
   // GitHub Info
   static getGitHubRepoInfo(projectId: string): GitHubRepoInfo {
-    const ghMap = getItem<Record<string, GitHubRepoInfo>>(STORAGE_KEYS.GITHUB, initialGitHubRepoInfo);
+    const ghMap = getItem<Record<string, GitHubRepoInfo>>(STORAGE_KEYS.GITHUB, {});
     return (
       ghMap[projectId] || {
         isConnected: false,
         repoName: '',
         branch: 'main',
-        lastSyncAt: new Date().toISOString(),
+        branches: [],
+        lastSyncAt: '',
         openIssuesCount: 0,
         openPullRequestsCount: 0,
         recentCommits: [],
         recentPRs: [],
         recentIssues: [],
         implementationSignals: [],
+        accessibleRepositories: [],
+        assignedRepositories: [],
+        activeRepository: null,
+        suggestedInstallationId: null,
+        isLoadingLive: false,
+        liveError: null,
       }
     );
   }
 
   static updateGitHubRepoInfo(projectId: string, updates: Partial<GitHubRepoInfo>): GitHubRepoInfo {
-    const ghMap = getItem<Record<string, GitHubRepoInfo>>(STORAGE_KEYS.GITHUB, initialGitHubRepoInfo);
+    const ghMap = getItem<Record<string, GitHubRepoInfo>>(STORAGE_KEYS.GITHUB, {});
     const current = this.getGitHubRepoInfo(projectId);
     const updated = { ...current, ...updates, lastSyncAt: new Date().toISOString() };
     ghMap[projectId] = updated;
@@ -573,7 +598,8 @@ export class StorageService {
   }
 
   // Unified Search Across All Project Artifacts
-  static performUnifiedSearch(projectId: string, query: string, mode: 'keyword' | 'semantic' | 'hybrid' | 'graph'): SearchResult[] {
+  static performUnifiedSearch(projectId: string, query: string, _mode: 'keyword' | 'semantic' | 'hybrid' | 'graph'): SearchResult[] {
+    void _mode;
     if (!query || query.trim().length === 0) return [];
     const q = query.toLowerCase().trim();
     const results: SearchResult[] = [];
@@ -667,7 +693,7 @@ export class StorageService {
             id: `commit-${c.hash}`,
             title: `Commit ${c.hash}: ${c.message}`,
             type: 'github',
-            snippet: `Authored by ${c.author} on ${new Date(c.date).toLocaleDateString()}`,
+            snippet: `Authored by ${c.author}${c.date ? ` on ${new Date(c.date).toLocaleDateString()}` : ''}`,
             relevanceScore: 0.88,
             section: 'github',
             metadata: { commitHash: c.hash },

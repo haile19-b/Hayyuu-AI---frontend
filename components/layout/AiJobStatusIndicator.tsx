@@ -75,13 +75,7 @@ export const AiJobStatusIndicator: React.FC<AiJobStatusIndicatorProps> = ({
 
       case 'idle':
       default:
-        return (
-          <div className="flex items-center gap-2 px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-all shadow-2xs">
-            <Cpu className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span className="font-mono text-[11px]">AI Engine Idle</span>
-            <ChevronDown className="w-3 h-3 text-slate-400 ml-0.5" />
-          </div>
-        );
+        return null;
     }
   };
 

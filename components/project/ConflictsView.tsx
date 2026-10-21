@@ -66,7 +66,7 @@ export const ConflictsView: React.FC<ConflictsViewProps> = ({
             <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 font-sans">Conflict & Risk Detection</h1>
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-            Automated detection of contradictions, ambiguities, gaps, and compliance risks across project artifacts for "{project.name}".
+            Automated detection of contradictions, ambiguities, gaps, and compliance risks across project artifacts for &quot;{project.name}&quot;.
           </p>
         </div>
       </div>

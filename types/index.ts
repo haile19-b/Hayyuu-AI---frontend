@@ -4,6 +4,7 @@ export type NavigationSection =
   | 'chat'
   | 'documents'
   | 'requirements'
+  | 'suggestions'
   | 'conflicts'
   | 'tasks'
   | 'github'
@@ -38,6 +39,11 @@ export interface Project {
   conflictsCount: number;
   memoriesCount: number;
   knowledgeEntitiesCount: number;
+  githubInstallationId?: string | null;
+  githubRepoOwner?: string | null;
+  githubRepoName?: string | null;
+  githubRepoUrl?: string | null;
+  githubConnectedAt?: string | null;
 }
 
 export interface ProjectDocument {
@@ -119,24 +125,45 @@ export interface Task {
 
 export interface CommitInfo {
   hash: string;
+  fullHash?: string;
   message: string;
   author: string;
-  date: string;
+  authorAvatarUrl?: string | null;
+  date?: string | null;
+  htmlUrl?: string | null;
 }
 
 export interface PullRequestInfo {
   number: number;
   title: string;
   status: 'open' | 'merged' | 'closed';
+  state?: 'open' | 'closed';
   author: string;
-  updatedAt: string;
+  authorAvatarUrl?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  mergedAt?: string | null;
+  closedAt?: string | null;
+  htmlUrl?: string | null;
+  draft?: boolean;
+  sourceBranch?: string | null;
+  targetBranch?: string | null;
+  buildStatus?: string;
+  reviews?: string;
+  coverage?: string;
 }
 
 export interface IssueInfo {
   number: number;
   title: string;
   state: 'open' | 'closed';
+  author?: string;
   labels: string[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  closedAt?: string | null;
+  htmlUrl?: string | null;
+  commentsCount?: number;
 }
 
 export interface ImplementationSignal {
@@ -146,10 +173,83 @@ export interface ImplementationSignal {
   lastChecked: string;
 }
 
+export interface GitHubBranchItem {
+  name: string;
+  commitSha: string;
+  protected: boolean;
+  isDefault: boolean;
+}
+
+export interface ProjectRepository {
+  id: string;
+  projectId: string;
+  owner: string;
+  name: string;
+  fullName: string;
+  htmlUrl: string;
+  defaultBranch: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GitHubRepositoryItem {
+  id: number;
+  name: string;
+  fullName: string;
+  owner: string;
+  description?: string | null;
+  htmlUrl: string;
+  defaultBranch: string;
+  private: boolean;
+  updatedAt?: string | null;
+  isAssignedToThisProject?: boolean;
+  isClaimedByOtherProject?: boolean;
+  claimedByProjectName?: string | null;
+}
+
+export interface GitHubStatusResponse {
+  isConnected: boolean;
+  installationId?: string | null;
+  repoOwner?: string | null;
+  repoName?: string | null;
+  repoUrl?: string | null;
+  connectedAt?: string | null;
+  accessibleRepositories: GitHubRepositoryItem[];
+  assignedRepositories: ProjectRepository[];
+  activeRepository?: ProjectRepository | null;
+  suggestedInstallationId?: string | null;
+}
+
+export interface GitHubLiveDataResponse {
+  repoOwner: string;
+  repoName: string;
+  repoUrl: string;
+  activeBranch: string;
+  branches: GitHubBranchItem[];
+  commits: CommitInfo[];
+  pullRequests: PullRequestInfo[];
+  issues: IssueInfo[];
+  openIssuesCount: number;
+  openPRsCount: number;
+  mergedPRsCount: number;
+  syncedAt: string;
+}
+
+export interface GitHubInstallUrlResponse {
+  installUrl: string;
+  state: string;
+}
+
 export interface GitHubRepoInfo {
   isConnected: boolean;
   repoName: string;
+  repoOwner?: string | null;
+  repoUrl?: string | null;
+  installationId?: string | null;
+  connectedAt?: string | null;
   branch: string;
+  branches?: GitHubBranchItem[];
   lastSyncAt: string;
   openIssuesCount: number;
   openPullRequestsCount: number;
@@ -157,6 +257,12 @@ export interface GitHubRepoInfo {
   recentPRs: PullRequestInfo[];
   recentIssues: IssueInfo[];
   implementationSignals: ImplementationSignal[];
+  accessibleRepositories?: GitHubRepositoryItem[];
+  assignedRepositories?: ProjectRepository[];
+  activeRepository?: ProjectRepository | null;
+  suggestedInstallationId?: string | null;
+  isLoadingLive?: boolean;
+  liveError?: string | null;
 }
 
 export type KnowledgeType = 'Technology' | 'Architecture' | 'Pattern' | 'API' | 'Component' | 'Rule';
@@ -233,7 +339,7 @@ export interface SearchResult {
   snippet: string;
   relevanceScore: number;
   section: NavigationSection;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface NotificationItem {
@@ -253,4 +359,19 @@ export interface WorkflowJob {
   progress: number;
   startedAt: string;
   details: string;
+}
+
+export interface AISuggestion {
+  id: string;
+  projectId: string;
+  type: string; // e.g. "gap_analysis"
+  content: {
+    title: string;
+    description: string;
+    reasoning: string;
+    category: string;
+  };
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  createdAt: string;
+  updatedAt: string;
 }

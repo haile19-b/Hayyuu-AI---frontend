@@ -12,6 +12,7 @@ import {
   Conversation,
   NotificationItem,
   WorkflowJob,
+  AISuggestion,
 } from '@/types';
 
 export const initialUserProfile: UserProfile = {
@@ -38,7 +39,7 @@ export const initialProjects: Project[] = [
     documentsCount: 5,
     requirementsCount: 8,
     tasksCount: 7,
-    conflictsCount: 3,
+    conflictsCount: 2,
     memoriesCount: 9,
     knowledgeEntitiesCount: 12,
   },
@@ -279,22 +280,6 @@ export const initialConflicts: Record<string, Conflict[]> = {
       detectedAt: '2026-08-06T15:30:00Z',
     },
     {
-      id: 'conf-302',
-      projectId: 'proj-novapay',
-      title: 'Unenforced Idempotency Key Schema in Database Migration',
-      category: 'Gap',
-      severity: 'Medium',
-      status: 'Investigating',
-      description: 'Functional Requirement REQ-104 mandates unique idempotency keys for all settlement transactions, but db_migration_schema_v3.sql lacks a UNIQUE index on the idempotency_key column.',
-      conflictingArtifacts: [
-        { type: 'Requirement', title: 'REQ-104: Idempotency Key Enforcement', id: 'req-104' },
-        { type: 'Document', title: 'Database Migration Schema Draft.sql', id: 'doc-04' },
-      ],
-      aiExplanation: 'Without a UNIQUE database constraint on idempotency_key, concurrent API requests under high load could bypass application-layer checks and create duplicate financial transactions.',
-      suggestedAction: 'Add `CREATE UNIQUE INDEX idx_transactions_idempotency ON transactions(idempotency_key) WHERE status != \'FAILED\';` to the migration script.',
-      detectedAt: '2026-08-07T18:15:00Z',
-    },
-    {
       id: 'conf-303',
       projectId: 'proj-novapay',
       title: 'Fraud ML Inference SLA vs Bank Callback Timeout Ambiguity',
@@ -312,6 +297,69 @@ export const initialConflicts: Record<string, Conflict[]> = {
     },
   ],
   'proj-authservice': [],
+};
+
+export const initialSuggestions: Record<string, AISuggestion[]> = {
+  'proj-novapay': [
+    {
+      id: 'sug-401',
+      projectId: 'proj-novapay',
+      type: 'gap_analysis',
+      content: {
+        title: 'Unenforced Idempotency Key Schema in Database Migration',
+        description: 'Functional Requirement REQ-104 mandates unique idempotency keys for all settlement transactions, but db_migration_schema_v3.sql lacks a UNIQUE index on the idempotency_key column.',
+        reasoning: 'Without a UNIQUE database constraint on idempotency_key, concurrent API requests under high load could bypass application-layer checks and create duplicate financial transactions.',
+        category: 'Gap Analysis / Reliability'
+      },
+      status: 'PENDING',
+      createdAt: '2026-08-07T18:15:00Z',
+      updatedAt: '2026-08-07T18:15:00Z'
+    },
+    {
+      id: 'sug-402',
+      projectId: 'proj-novapay',
+      type: 'gap_analysis',
+      content: {
+        title: 'Implement Rate Limiting on Settle Endpoint',
+        description: 'Add request rate limiting on the POST /api/v1/settle endpoint to prevent denial of service (DoS) attacks.',
+        reasoning: 'The settlement endpoint executes expensive cryptographic validation and database row-level locking. Unrestricted traffic could easily exhaust the connection pool and CPU resources.',
+        category: 'Security / Performance'
+      },
+      status: 'PENDING',
+      createdAt: '2026-08-08T09:12:00Z',
+      updatedAt: '2026-08-08T09:12:00Z'
+    },
+    {
+      id: 'sug-403',
+      projectId: 'proj-novapay',
+      type: 'gap_analysis',
+      content: {
+        title: 'Introduce Distributed Tracing (OpenTelemetry)',
+        description: 'Instrument gRPC settlement handlers with OpenTelemetry tracing spans to track latency metrics across Redis and PostgreSQL boundaries.',
+        reasoning: 'REQ-101 requires a strict sub-100ms API SLA. Without detailed distributed trace telemetry, identifying which database query or cache fetch causes latency spikes under load will be extremely difficult.',
+        category: 'Monitoring / Performance'
+      },
+      status: 'PENDING',
+      createdAt: '2026-08-09T10:00:00Z',
+      updatedAt: '2026-08-09T10:00:00Z'
+    }
+  ],
+  'proj-authservice': [
+    {
+      id: 'sug-auth-01',
+      projectId: 'proj-authservice',
+      type: 'gap_analysis',
+      content: {
+        title: 'Enable PKCE for Mobile Ingress Clients',
+        description: 'Enforce Authorization Code Flow with PKCE for all public OAuth2 clients.',
+        reasoning: 'Mobile apps cannot securely store client secrets. Standard Authorization Code Flow without PKCE exposes them to interception attacks.',
+        category: 'Security'
+      },
+      status: 'PENDING',
+      createdAt: '2026-08-08T11:00:00Z',
+      updatedAt: '2026-08-08T11:00:00Z'
+    }
+  ]
 };
 
 export const initialTasks: Record<string, Task[]> = {

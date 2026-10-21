@@ -1,9 +1,10 @@
 'use client'
 
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Github, Save, Trash2, ShieldAlert, Sun, Moon, Palette } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Trash2, ShieldAlert, Sun, Moon, Palette } from 'lucide-react';
 import { Project } from '@/types';
 import { useTheme } from 'next-themes';
+import { GitHubIntegrationCard } from './GitHubIntegrationCard';
 
 interface SettingsViewProps {
   project: Project;
@@ -20,8 +21,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [name, setName] = useState(project.name);
   const [key, setKey] = useState(project.key);
   const [description, setDescription] = useState(project.description);
-  const [repositoryUrl, setRepositoryUrl] = useState(project.repositoryUrl || '');
-  const [branch, setBranch] = useState(project.branch || 'main');
 
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -31,8 +30,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       name: name.trim(),
       key: key.trim().toUpperCase(),
       description: description.trim(),
-      repositoryUrl: repositoryUrl.trim(),
-      branch: branch.trim() || 'main',
     });
 
     setSavedSuccess(true);
@@ -48,7 +45,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 font-sans">Project Workspace Settings</h1>
         </div>
         <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-          Configure metadata, display themes, GitHub repository integration, and vector intelligence indexing for "{project.name}".
+          Configure metadata, display themes, GitHub repository integration, and vector intelligence indexing for &quot;{project.name}&quot;.
         </p>
       </div>
 
@@ -141,36 +138,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* GitHub Repository Integration */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4 shadow-2xs">
-          <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800 pb-2 flex items-center gap-1.5">
-            <Github className="w-4 h-4 text-slate-700 dark:text-slate-300" /> GitHub Repository Link
-          </h2>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2">
-              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Repository URL</label>
-              <input
-                type="text"
-                value={repositoryUrl}
-                onChange={(e) => setRepositoryUrl(e.target.value)}
-                placeholder="https://github.com/org/repo-name"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 font-mono text-xs focus:outline-hidden focus:border-blue-600"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Branch</label>
-              <input
-                type="text"
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                placeholder="main"
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100 font-mono text-xs focus:outline-hidden focus:border-blue-600"
-              />
-            </div>
-          </div>
-        </div>
+        {/* GitHub Repository Integration Card */}
+        <GitHubIntegrationCard project={project} />
 
         {/* Action Button */}
         <div className="flex items-center gap-3">
