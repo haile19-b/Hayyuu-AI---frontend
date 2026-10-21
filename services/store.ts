@@ -883,32 +883,86 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   fetchGitHubLiveData: async (projectId: string, repo?: string, branch?: string) => {
     const currentGh = get().githubInfo;
-    set({ githubInfo: { ...currentGh, isLoadingLive: true, liveError: null } });
+    const targetRepo = repo || currentGh.repoName || undefined;
+
+    // Immediately update local active repository selection if a target repo was specified
+    if (targetRepo) {
+      const targetLower = targetRepo.toLowerCase();
+      const updatedAssigned = (currentGh.assignedRepositories || []).map((r) => {
+        const isMatch =
+          r.fullName.toLowerCase() === targetLower ||
+          r.name.toLowerCase() === targetLower;
+        return { ...r, isActive: isMatch };
+      });
+      const activeMatch = updatedAssigned.find((r) => r.isActive) || null;
+      const [tOwner, tName] = targetRepo.includes('/')
+        ? targetRepo.split('/')
+        : [currentGh.repoOwner || '', targetRepo];
+
+      set({
+        githubInfo: {
+          ...currentGh,
+          assignedRepositories: updatedAssigned,
+          activeRepository: activeMatch || currentGh.activeRepository,
+          repoName: tName || currentGh.repoName,
+          repoOwner: tOwner || currentGh.repoOwner,
+          repoUrl: activeMatch?.htmlUrl || currentGh.repoUrl,
+          isLoadingLive: true,
+          liveError: null,
+        },
+      });
+    } else {
+      set({ githubInfo: { ...currentGh, isLoadingLive: true, liveError: null } });
+    }
 
     try {
-      const targetRepo = repo || currentGh.repoName || undefined;
       const res = await GitHubApiService.getLiveData(projectId, targetRepo, branch);
       if (res.success && res.response) {
         const live = res.response;
-        set({
-          githubInfo: {
-            ...get().githubInfo,
-            isConnected: true,
-            repoName: live.repoName,
-            repoOwner: live.repoOwner,
-            repoUrl: live.repoUrl,
-            branch: live.activeBranch,
-            branches: live.branches || [],
-            recentCommits: live.commits || [],
-            recentPRs: live.pullRequests || [],
-            recentIssues: live.issues || [],
-            openIssuesCount: live.openIssuesCount,
-            openPullRequestsCount: live.openPRsCount,
-            lastSyncAt: live.syncedAt,
-            isLoadingLive: false,
-            liveError: null,
-          },
+        const liveFullName = `${live.repoOwner}/${live.repoName}`.toLowerCase();
+        const updatedAssigned = (get().githubInfo.assignedRepositories || []).map((r) => {
+          const isMatch =
+            r.fullName.toLowerCase() === liveFullName ||
+            r.name.toLowerCase() === live.repoName.toLowerCase();
+          return { ...r, isActive: isMatch };
         });
+        const activeRepoItem = updatedAssigned.find((r) => r.isActive) || null;
+
+        const updatedGh: GitHubRepoInfo = {
+          ...get().githubInfo,
+          isConnected: true,
+          assignedRepositories: updatedAssigned,
+          activeRepository: activeRepoItem,
+          repoName: live.repoName,
+          repoOwner: live.repoOwner,
+          repoUrl: live.repoUrl,
+          branch: live.activeBranch,
+          branches: live.branches || [],
+          recentCommits: live.commits || [],
+          recentPRs: live.pullRequests || [],
+          recentIssues: live.issues || [],
+          openIssuesCount: live.openIssuesCount,
+          openPullRequestsCount: live.openPRsCount,
+          lastSyncAt: live.syncedAt,
+          isLoadingLive: false,
+          liveError: null,
+        };
+
+        set({
+          githubInfo: updatedGh,
+          projects: get().projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  githubRepoOwner: live.repoOwner,
+                  githubRepoName: live.repoName,
+                  githubRepoUrl: live.repoUrl,
+                }
+              : p
+          ),
+        });
+
+        StorageService.updateGitHubRepoInfo(projectId, updatedGh);
       } else {
         set({
           githubInfo: {
