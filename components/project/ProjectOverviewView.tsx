@@ -99,16 +99,27 @@ export const ProjectOverviewView: React.FC<ProjectOverviewViewProps> = ({
   const store = useAppStore();
 
   const assignedRepos = githubInfo?.assignedRepositories || [];
+  const liveFullName =
+    githubInfo?.repoOwner && githubInfo?.repoName
+      ? `${githubInfo.repoOwner}/${githubInfo.repoName}`
+      : '';
+
   const activeAssignedRepo =
+    (liveFullName
+      ? assignedRepos.find(
+          (r) =>
+            r.fullName.toLowerCase() === liveFullName.toLowerCase() ||
+            r.name.toLowerCase() === githubInfo?.repoName?.toLowerCase()
+        )
+      : null) ||
     assignedRepos.find((r) => r.isActive) ||
     assignedRepos[0] ||
     null;
 
   const activeRepoFullName =
     activeAssignedRepo?.fullName ||
-    (githubInfo?.repoOwner && githubInfo?.repoName
-      ? `${githubInfo.repoOwner}/${githubInfo.repoName}`
-      : project.githubRepoOwner && project.githubRepoName
+    liveFullName ||
+    (project.githubRepoOwner && project.githubRepoName
       ? `${project.githubRepoOwner}/${project.githubRepoName}`
       : githubInfo?.repoName || '');
 
@@ -315,7 +326,7 @@ export const ProjectOverviewView: React.FC<ProjectOverviewViewProps> = ({
           <div className="border-t border-slate-200 dark:border-slate-800 pt-4">
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-300 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-slate-900 dark:bg-slate-800 text-white shrink-0">
+                <div className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shrink-0">
                   <Github className="w-5 h-5" />
                 </div>
                 <div>
@@ -334,7 +345,7 @@ export const ProjectOverviewView: React.FC<ProjectOverviewViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateSection('github')}
-                className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
+                className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-all shrink-0 cursor-pointer"
               >
                 <Github className="w-3.5 h-3.5" /> Connect GitHub Repository
               </button>
@@ -350,7 +361,7 @@ export const ProjectOverviewView: React.FC<ProjectOverviewViewProps> = ({
                 {assignedRepos.length > 1 ? (
                   <div className="relative inline-block max-w-full">
                     <select
-                      value={activeRepoFullName}
+                      value={assignedRepos.find((r) => r.fullName.toLowerCase() === activeRepoFullName.toLowerCase())?.fullName || activeRepoFullName}
                       onChange={(e) => handleRepoChange(e.target.value)}
                       disabled={githubInfo.isLoadingLive}
                       className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-mono font-bold text-slate-900 dark:text-slate-100 cursor-pointer focus:outline-hidden hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
