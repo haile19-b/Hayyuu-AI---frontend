@@ -37,7 +37,7 @@ import { GitHubApiService } from '@/services/githubService';
 interface GitHubViewProps {
   project: Project;
   githubInfo: GitHubRepoInfo;
-  onRefreshSync?: () => void;
+  onRefreshSync?: (repo?: string) => void;
 }
 
 export const GitHubView: React.FC<GitHubViewProps> = ({
@@ -63,19 +63,31 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+  const [isRefreshingStatus, setIsRefreshingStatus] = useState<boolean>(false);
 
   // Derived active repository and multi-repo state
   const assignedRepos: ProjectRepository[] = githubInfo.assignedRepositories || [];
+  const liveFullName =
+    githubInfo.repoOwner && githubInfo.repoName
+      ? `${githubInfo.repoOwner}/${githubInfo.repoName}`
+      : '';
+
   const activeAssignedRepo =
+    (liveFullName
+      ? assignedRepos.find(
+          (r) =>
+            r.fullName.toLowerCase() === liveFullName.toLowerCase() ||
+            r.name.toLowerCase() === githubInfo.repoName?.toLowerCase()
+        )
+      : null) ||
     assignedRepos.find((r) => r.isActive) ||
     assignedRepos[0] ||
     null;
 
   const activeRepoFullName =
     activeAssignedRepo?.fullName ||
-    (githubInfo.repoOwner && githubInfo.repoName
-      ? `${githubInfo.repoOwner}/${githubInfo.repoName}`
-      : project.githubRepoOwner && project.githubRepoName
+    liveFullName ||
+    (project.githubRepoOwner && project.githubRepoName
       ? `${project.githubRepoOwner}/${project.githubRepoName}`
       : '');
 
@@ -359,6 +371,8 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
   };
 
   const handleSwitchActiveRepo = (repoFullName: string) => {
+    if (repoFullName.toLowerCase() === activeRepoFullName.toLowerCase()) return;
+    setFeedbackMessage(null);
     void store.fetchGitHubLiveData(project.id, repoFullName);
   };
 
@@ -367,12 +381,37 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
     void store.changeGitHubBranch(project.id, branchName, targetRepo);
   };
 
-  const handleSync = () => {
-    if (onRefreshSync) {
-      onRefreshSync();
-    }
+  const handleSync = async () => {
+    setFeedbackMessage(null);
     const targetRepo = activeRepoFullName || undefined;
-    void store.fetchGitHubLiveData(project.id, targetRepo, selectedBranch);
+    if (onRefreshSync) {
+      onRefreshSync(targetRepo);
+    } else {
+      await store.fetchGitHubLiveData(project.id, targetRepo, selectedBranch);
+    }
+    setFeedbackMessage({
+      type: 'success',
+      text: `Repository ${targetRepo || ''} synchronized successfully.`,
+    });
+  };
+
+  const handleRefreshStatus = async () => {
+    setIsRefreshingStatus(true);
+    setFeedbackMessage(null);
+    try {
+      await store.fetchGitHubStatus(project.id);
+      setFeedbackMessage({
+        type: 'success',
+        text: 'GitHub integration status updated successfully.',
+      });
+    } catch {
+      setFeedbackMessage({
+        type: 'error',
+        text: 'Failed to refresh integration status.',
+      });
+    } finally {
+      setIsRefreshingStatus(false);
+    }
   };
 
   return (
@@ -381,7 +420,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <Github className="w-5 h-5 text-slate-800 dark:text-slate-200" />
+            <Github className="w-5 h-5 text-slate-900 dark:text-slate-100" />
             <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               GitHub Sync & Integration
             </h1>
@@ -396,23 +435,24 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
             <button
               onClick={handleSync}
               disabled={githubInfo.isLoadingLive}
-              className="px-3.5 py-2 rounded-md bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-2 rounded-md bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs font-semibold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw
                 className={`w-3.5 h-3.5 text-blue-600 dark:text-blue-400 ${
                   githubInfo.isLoadingLive ? 'animate-spin' : ''
                 }`}
               />
-              Sync Repository
+              <span>{githubInfo.isLoadingLive ? 'Syncing...' : 'Sync Repository'}</span>
             </button>
           )}
 
           <button
-            onClick={() => void store.fetchGitHubStatus(project.id)}
+            onClick={handleRefreshStatus}
+            disabled={isRefreshingStatus}
             title="Refresh integration status"
-            className="p-2 rounded-md bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+            className="p-2 rounded-md bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 transition-all cursor-pointer disabled:opacity-50"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingStatus ? 'animate-spin text-blue-600 dark:text-blue-400' : ''}`} />
           </button>
         </div>
       </div>
@@ -467,7 +507,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center space-y-4 shadow-xs relative overflow-hidden">
             <div className="absolute top-0 right-0 transform translate-x-12 -translate-y-12 w-64 h-64 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="w-16 h-16 rounded-2xl bg-slate-900 dark:bg-slate-800 text-white mx-auto flex items-center justify-center shadow-md">
+            <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 mx-auto flex items-center justify-center shadow-xs">
               <Github className="w-8 h-8" />
             </div>
 
@@ -487,7 +527,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                 type="button"
                 onClick={handleConnectApp}
                 disabled={connecting}
-                className="w-full sm:w-auto px-6 py-3 rounded-lg bg-slate-900 hover:bg-black dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs inline-flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                className="w-full sm:w-auto px-6 py-3 rounded-lg bg-slate-900 hover:bg-black dark:bg-white dark:hover:bg-slate-100 active:scale-95 text-white dark:text-slate-900 font-bold text-xs inline-flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-50"
               >
                 {connecting ? (
                   <>
@@ -502,10 +542,11 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => void store.fetchGitHubStatus(project.id)}
-                className="w-full sm:w-auto px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs inline-flex items-center justify-center gap-1.5 transition-colors"
+                onClick={handleRefreshStatus}
+                disabled={isRefreshingStatus}
+                className="w-full sm:w-auto px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 active:scale-95 text-slate-700 dark:text-slate-300 font-semibold text-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Check Accessible Repositories
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingStatus ? 'animate-spin text-blue-600 dark:text-blue-400' : ''}`} /> Check Accessible Repositories
               </button>
             </div>
           </div>
@@ -583,7 +624,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                             connecting ||
                             (currentAccessibleChoice.isClaimedByOtherProject && !currentAccessibleChoice.isAssignedToThisProject)
                           }
-                          className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                          className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                         >
                           {connecting ? (
                             <>
@@ -772,7 +813,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
           {/* Active Repository & Branch Control Banner */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
             <div className="flex items-start sm:items-center gap-3 min-w-0">
-              <div className="p-3 rounded-xl bg-slate-900 dark:bg-slate-800 text-white shrink-0">
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 shrink-0">
                 <Github className="w-6 h-6" />
               </div>
 
@@ -837,7 +878,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                   href={activeRepoUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3.5 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-colors inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  className="px-3.5 py-2 rounded-md bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-semibold text-xs transition-all inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
                 >
                   Open in GitHub <ExternalLink className="w-3.5 h-3.5" />
                 </a>
@@ -850,7 +891,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                     type="button"
                     onClick={() => handleDisconnect(confirmDisconnect === 'current' ? activeRepoFullName : undefined)}
                     disabled={disconnecting}
-                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold rounded flex items-center gap-1"
+                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-[11px] font-bold rounded flex items-center gap-1 cursor-pointer transition-all"
                   >
                     {disconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Unlink className="w-3 h-3" />}
                     Confirm {confirmDisconnect === 'current' ? 'Unlink' : 'All'}
@@ -858,7 +899,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setConfirmDisconnect(null)}
-                    className="px-2 py-1 text-slate-600 dark:text-slate-400 hover:text-slate-800 text-[11px]"
+                    className="px-2 py-1 text-slate-600 dark:text-slate-400 hover:text-slate-800 active:scale-95 text-[11px] cursor-pointer transition-all"
                   >
                     Cancel
                   </button>
@@ -869,7 +910,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                     type="button"
                     onClick={() => setConfirmDisconnect('current')}
                     title="Unlink repository from project"
-                    className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 hover:border-rose-200 text-slate-600 dark:text-slate-400 text-xs font-semibold transition-colors flex items-center gap-1"
+                    className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 hover:border-rose-200 active:scale-95 text-slate-600 dark:text-slate-400 text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer"
                   >
                     <Unlink className="w-3.5 h-3.5" /> Unlink
                   </button>
@@ -887,21 +928,26 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
 
               {assignedRepos.length > 0 ? (
                 assignedRepos.map((repo) => {
-                  const isActive = repo.fullName === activeRepoFullName;
+                  const isActive = repo.fullName.toLowerCase() === activeRepoFullName.toLowerCase();
                   return (
                     <button
-                      key={repo.id}
+                      key={repo.id || repo.fullName}
                       type="button"
                       onClick={() => handleSwitchActiveRepo(repo.fullName)}
-                      className={`px-3 py-1.5 rounded-md text-xs font-mono font-semibold transition-all flex items-center gap-1.5 shrink-0 ${
+                      disabled={isActive && githubInfo.isLoadingLive}
+                      className={`px-3 py-1.5 rounded-md text-xs font-mono font-semibold transition-all flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95 ${
                         isActive
-                          ? 'bg-blue-600 text-white shadow-2xs'
-                          : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-300'
                       }`}
                     >
                       <FolderGit2 className="w-3.5 h-3.5" />
                       <span>{repo.name}</span>
-                      {isActive && <Check className="w-3 h-3 ml-0.5" />}
+                      {isActive && githubInfo.isLoadingLive ? (
+                        <Loader2 className="w-3 h-3 animate-spin ml-0.5 text-white" />
+                      ) : (
+                        isActive && <Check className="w-3 h-3 ml-0.5" />
+                      )}
                     </button>
                   );
                 })
@@ -918,7 +964,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAddRepoModal(!showAddRepoModal)}
-                className="px-3 py-1.5 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                className="px-3 py-1.5 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 border border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Another Repo
               </button>
@@ -940,7 +986,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAddRepoModal(false)}
-                  className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                  className="text-slate-400 hover:text-slate-600 active:scale-95 text-sm font-bold cursor-pointer transition-all"
                 >
                   ✕
                 </button>
@@ -949,7 +995,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
               {accessibleRepos.length > 0 ? (
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                   {accessibleRepos.map((repo) => {
-                    const isAlreadyAssigned = assignedRepos.some((r) => r.fullName === repo.fullName);
+                    const isAlreadyAssigned = assignedRepos.some((r) => r.fullName.toLowerCase() === repo.fullName.toLowerCase());
                     const isClaimedByOther = repo.isClaimedByOtherProject && !isAlreadyAssigned;
 
                     return (
@@ -974,9 +1020,10 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
                             type="button"
                             onClick={() => handleSelectRepository(repo.owner, repo.name)}
                             disabled={connecting}
-                            className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold"
+                            className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[11px] font-semibold cursor-pointer disabled:opacity-50 transition-all flex items-center gap-1"
                           >
-                            + Assign
+                            {connecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                            Assign
                           </button>
                         )}
                       </div>
@@ -995,7 +1042,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
           <div className="border-b border-slate-200 dark:border-slate-800 flex items-center gap-4">
             <button
               onClick={() => setActiveTab('commits')}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 px-1 cursor-pointer ${
+              className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 px-1 cursor-pointer active:scale-95 ${
                 activeTab === 'commits'
                   ? 'border-blue-600 dark:border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
@@ -1009,7 +1056,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
 
             <button
               onClick={() => setActiveTab('prs')}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 px-1 cursor-pointer ${
+              className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 px-1 cursor-pointer active:scale-95 ${
                 activeTab === 'prs'
                   ? 'border-blue-600 dark:border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
@@ -1023,7 +1070,7 @@ export const GitHubView: React.FC<GitHubViewProps> = ({
 
             <button
               onClick={() => setActiveTab('insights')}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 px-1 cursor-pointer ${
+              className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center gap-1.5 px-1 cursor-pointer active:scale-95 ${
                 activeTab === 'insights'
                   ? 'border-blue-600 dark:border-blue-500 text-blue-600 dark:text-blue-400'
                   : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'

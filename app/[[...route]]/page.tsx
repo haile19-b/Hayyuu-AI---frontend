@@ -443,8 +443,8 @@ export default function Home() {
             <GitHubView
               project={currentProject}
               githubInfo={store.githubInfo}
-              onRefreshSync={() => {
-                void store.fetchGitHubLiveData(currentProject.id);
+              onRefreshSync={(repo?: string) => {
+                void store.fetchGitHubLiveData(currentProject.id, repo);
               }}
             />
           )}
